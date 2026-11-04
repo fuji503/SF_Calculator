@@ -8,6 +8,15 @@ export interface ChangelogEntry {
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '0.2.0',
+    date: '2026-11-05',
+    changes: [
+      '「太陽光集光・送電」の計算を追加。',
+      '計算結果カードを追加（入力・出力、グラフ、複製、並び替え、削除、JSONと画像の保存、JSONの読込）。',
+      'カードは画面を再読み込みしても残るようにした（タブを閉じると消えます）。',
+    ],
+  },
+  {
     version: '0.1.0',
     date: '2026-11-04',
     changes: [

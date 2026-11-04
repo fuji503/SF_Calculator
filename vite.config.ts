@@ -10,6 +10,10 @@ export default defineConfig({
   // GitHub Pages はサブパス (/SF_Calculator/) で配信されるため相対パスでビルドする
   base: './',
   plugins: [react(), tailwindcss()],
+  build: {
+    // シム画面のチャンク（グラフと数式のライブラリを含む）は約 730 kB。遅れて読み込むので許容する
+    chunkSizeWarningLimit: 800,
+  },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

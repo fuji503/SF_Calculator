@@ -7,7 +7,7 @@ export function HowToScreen() {
       <h1 className="text-xl font-bold text-white md:text-2xl">使い方</h1>
 
       <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
-        計算結果カードは準備中です。以下は、カードができたときの操作の説明です。
+        今使えるのは「太陽光集光・送電」だけです。ほかのシミュレータは順に追加します。
       </p>
 
       <Section title="基本の流れ">

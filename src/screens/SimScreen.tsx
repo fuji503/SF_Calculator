@@ -1,7 +1,11 @@
+import { lazy, Suspense } from 'react'
 import { Accordion } from '../components/Accordion.tsx'
 import { SimIcon } from '../components/SimIcon.tsx'
 import { t } from '../i18n/ja.ts'
+import { implementedSims } from '../sims/implemented.ts'
 import type { SimModuleMeta } from '../sims/types.ts'
+
+const SimCards = lazy(() => import('./SimCards.tsx'))
 
 const SPEC_BASE_URL = 'https://github.com/fuji503/SF_Calculator/blob/main/docs/'
 
@@ -9,7 +13,7 @@ interface Props {
   sim: SimModuleMeta
 }
 
-/** シム画面（WebApp仕様書 §4.6）。計算結果カードは M3 で追加する */
+/** シム画面（WebApp仕様書 §4.6） */
 export function SimScreen({ sim }: Props) {
   return (
     <div className="space-y-4">
@@ -34,9 +38,15 @@ export function SimScreen({ sim }: Props) {
         </p>
       </Accordion>
 
-      <p className="rounded-lg border border-dashed border-slate-700 px-4 py-8 text-center text-sm text-slate-400">
-        {t.sim.notReady}
-      </p>
+      {implementedSims.has(sim.id) ? (
+        <Suspense fallback={<p className="py-8 text-center text-sm text-slate-500">{t.sim.loading}</p>}>
+          <SimCards moduleId={sim.id} />
+        </Suspense>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-700 px-4 py-8 text-center text-sm text-slate-400">
+          {t.sim.notReady}
+        </p>
+      )}
     </div>
   )
 }
