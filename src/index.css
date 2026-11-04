@@ -1,0 +1,10 @@
+@import 'tailwindcss';
+
+html {
+  /* ヘッダ（上部に固定）の分だけ、ページ内リンクの位置をずらす */
+  scroll-padding-top: 4rem;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+}
