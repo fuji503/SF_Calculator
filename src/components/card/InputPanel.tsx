@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { isVisible, paramRole } from '../../core/evaluate.ts'
+import { isVisible, paramRole, selectEnum } from '../../core/evaluate.ts'
 import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
@@ -120,7 +120,7 @@ function EnumSelect({ id, p, value, onInputs }: { id: string; p: EnumParam; valu
       onChange={(e) => {
         const v = e.target.value
         // 選んだ選択肢のプリセット値も一緒に入れる。その後も手で上書きできる
-        onInputs((i) => ({ ...i, ...(p.presets?.[v] ?? {}), [p.key]: v }))
+        onInputs((i) => selectEnum(p, v, i))
       }}
       className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
     >

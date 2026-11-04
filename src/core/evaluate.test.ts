@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { simDefinitions } from '../sims/definitions.ts'
 import { simModules } from '../sims/registry.ts'
 import { solarBeaming } from '../sims/solar-beaming/definition.ts'
-import { checkNumber, commonMessages, defaultInputs, evaluate, paramRole, validateInputs } from './evaluate.ts'
+import { checkNumber, commonMessages, defaultInputs, evaluate, isVisible, paramRole, validateInputs } from './evaluate.ts'
 
 describe('モジュール定義の共通チェック', () => {
   for (const def of Object.values(simDefinitions)) {
@@ -23,14 +23,14 @@ describe('モジュール定義の共通チェック', () => {
         expect(validateInputs(def, inputs)).toEqual({})
         const r = evaluate(def, inputs)
         expect(r.errors).toEqual([])
-        for (const o of def.outputs) expect(r.outputs[o.key]).toBeDefined()
+        for (const o of def.outputs) if (isVisible(o, inputs)) expect(r.outputs[o.key]).toBeDefined()
       })
 
       it('出力になるパラメータは、計算結果に同じキーで入る', () => {
         const inputs = defaultInputs(def)
         const r = evaluate(def, inputs)
         for (const p of def.inputs) {
-          if (paramRole(p, inputs) === 'output') expect(r.outputs[p.key]).toBeDefined()
+          if (isVisible(p, inputs) && paramRole(p, inputs) === 'output') expect(r.outputs[p.key]).toBeDefined()
         }
       })
 

@@ -8,6 +8,14 @@ export interface ChangelogEntry {
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '0.3.0',
+    date: '2026-11-05',
+    changes: [
+      '「レーザ発振・送電」の計算を追加（5つの発振器の方式、地球・火星・タイタンの大気）。',
+      '「太陽光集光・送電」のパラメータの説明を詳しくした（太陽距離の目安、精度の値の大小、入射角の意味）。',
+    ],
+  },
+  {
     version: '0.2.0',
     date: '2026-11-05',
     changes: [

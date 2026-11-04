@@ -68,14 +68,14 @@ interface UnitSelectProps {
 export function UnitSelect({ unit, unitId, onChange, ariaLabel }: UnitSelectProps) {
   const u = findUnit(unit, unitId)
   if (unit.options.length <= 1) {
-    return <span className="w-16 shrink-0 text-sm text-slate-400">{u.label}</span>
+    return <span className="w-[4.75rem] shrink-0 text-sm text-slate-400">{u.label}</span>
   }
   return (
     <select
       aria-label={ariaLabel}
       value={u.id}
       onChange={(e) => onChange(e.target.value)}
-      className="w-16 shrink-0 rounded-md border border-slate-700 bg-slate-900 px-1 py-1 text-sm text-slate-200"
+      className="w-[4.75rem] shrink-0 rounded-md border border-slate-700 bg-slate-900 px-1 py-1 text-sm text-slate-200"
     >
       {unit.options.map((o) => (
         <option key={o.id} value={o.id}>

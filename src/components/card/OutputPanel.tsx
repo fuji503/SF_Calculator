@@ -1,4 +1,4 @@
-import { messageText } from '../../core/evaluate.ts'
+import { isVisible, messageText } from '../../core/evaluate.ts'
 import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
@@ -18,8 +18,9 @@ interface Props {
 /** 出力欄：値、単位、警告（⚠）、エラー（✖） */
 export function OutputPanel({ def, card, result, pending, onUnit }: Props) {
   const failed = !result || result.errors.length > 0
-  const primary = def.outputs.filter((o) => o.primary)
-  const others = def.outputs.filter((o) => !o.primary)
+  const shown = def.outputs.filter((o) => isVisible(o, card.inputs))
+  const primary = shown.filter((o) => o.primary)
+  const others = shown.filter((o) => !o.primary)
 
   return (
     <div className="space-y-3">
@@ -140,7 +141,7 @@ export function PrimarySummary({ def, card, result }: { def: SimDefinition; card
   return (
     <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
       {def.outputs
-        .filter((o) => o.primary)
+        .filter((o) => o.primary && isVisible(o, card.inputs))
         .map((o) => {
           const v = result.outputs[o.key]
           if (v?.kind !== 'number') return null

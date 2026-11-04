@@ -65,8 +65,11 @@ export interface EnumParam extends ParamBase {
   kind: 'enum'
   options: readonly EnumOption[]
   default: string
-  /** その選択肢を選んだときに一括で入れる値 */
-  presets?: Record<string, Inputs>
+  /**
+   * その選択肢を選んだときに一括で入れる値。
+   * ほかの入力にもよるとき（例：大気の光学的厚さは、発振器の方式と大気の組み合わせで決まる）は関数にする
+   */
+  presets?: Record<string, Inputs> | ((value: string, inputs: Inputs) => Inputs)
 }
 
 export interface BooleanParam extends ParamBase {
@@ -119,6 +122,8 @@ export interface OutputDef {
   /** 主要な出力（大きめに表示し、折りたたみ時のサマリーにも出す） */
   primary?: boolean
   description?: string
+  /** false を返すと表示しない（例：化学レーザのときだけ燃料消費率を出す） */
+  visibleWhen?: (inputs: Inputs) => boolean
 }
 
 /** 計算のメッセージ。文言はモジュールの messages から code で引く */

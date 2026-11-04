@@ -1,4 +1,4 @@
-import type { ComputeResult, Inputs, Message, NumberParam, ParamDef, SimDefinition } from '../sims/types.ts'
+import type { ComputeResult, EnumParam, Inputs, Message, NumberParam, OutputDef, ParamDef, SimDefinition } from '../sims/types.ts'
 
 /** 初期値の入力 */
 export function defaultInputs(def: SimDefinition): Inputs {
@@ -9,7 +9,19 @@ export function defaultInputs(def: SimDefinition): Inputs {
   return inputs
 }
 
-export function isVisible(p: ParamDef, inputs: Inputs): boolean {
+/** 選択肢を選んだときに入れるプリセット値 */
+export function presetFor(p: EnumParam, value: string, inputs: Inputs): Inputs {
+  if (!p.presets) return {}
+  return typeof p.presets === 'function' ? p.presets(value, inputs) : (p.presets[value] ?? {})
+}
+
+/** 選択肢を変えた後の入力。プリセット値は、選んだ値を入れた後の入力をもとに決める */
+export function selectEnum(p: EnumParam, value: string, inputs: Inputs): Inputs {
+  const next = { ...inputs, [p.key]: value }
+  return { ...next, ...presetFor(p, value, next) }
+}
+
+export function isVisible(p: ParamDef | OutputDef, inputs: Inputs): boolean {
   return p.visibleWhen?.(inputs) ?? true
 }
 

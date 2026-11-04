@@ -33,7 +33,7 @@ export function xCandidates(def: SimDefinition, inputs: Inputs): NumberParam[] {
 
 /** Y軸に選べる出力：数値の出力と、出力になっている数値の入力 */
 export function yCandidates(def: SimDefinition, inputs: Inputs): (OutputDef | NumberParam)[] {
-  const outputs = def.outputs.filter((o) => o.kind === 'number')
+  const outputs = def.outputs.filter((o) => o.kind === 'number' && isVisible(o, inputs))
   const roleOutputs = def.inputs.filter(
     (p): p is NumberParam =>
       p.kind === 'number' && paramRole(p, inputs) === 'output' && !outputs.some((o) => o.key === p.key),
