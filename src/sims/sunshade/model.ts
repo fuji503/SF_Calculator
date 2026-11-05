@@ -32,13 +32,18 @@ export const TARGET_PRESETS: Record<'earth' | 'mars' | 'venus', TargetPreset> = 
 }
 
 /** ほかの惑星の軌道との交差の判定に使う惑星（§3.1） */
-export const PLANETS: readonly { name: string; a: number; GM: number }[] = [
-  { name: '水星', a: 0.3871 * AU, GM: 2.2032e13 },
-  { name: '金星', a: 0.7233 * AU, GM: 3.24859e14 },
-  { name: '地球', a: 1.0 * AU, GM: 4.035e14 },
-  { name: '火星', a: 1.5237 * AU, GM: 4.2828e13 },
-  { name: '木星', a: 5.2034 * AU, GM: 1.26687e17 },
+export const PLANETS: readonly { name: string; a: number; GM: number; R: number }[] = [
+  { name: '水星', a: 0.3871 * AU, GM: 2.2032e13, R: 2439.7e3 },
+  { name: '金星', a: 0.7233 * AU, GM: 3.24859e14, R: 6051.8e3 },
+  { name: '地球', a: 1.0 * AU, GM: 4.035e14, R: 6371e3 },
+  { name: '火星', a: 1.5237 * AU, GM: 4.2828e13, R: 3389.5e3 },
+  { name: '木星', a: 5.2034 * AU, GM: 1.26687e17, R: 69_911e3 },
 ]
+
+/**
+ * ほかの惑星の日射の減少を知らせる下限。太陽の11年周期による日射の変化（約0.1%）と同じ大きさにした
+ */
+export const OTHER_DIMMING_NOTICE = 1e-3
 
 /** 面密度のプリセット [kg/m²] */
 export const SIGMA_PRESETS: Record<string, number> = {
@@ -564,10 +569,17 @@ export function computeSunshade(p: SunshadeInputs): SunshadeResult {
     for (const pl of PLANETS) {
       if (Math.abs(pl.a - p.a_p) <= 1e-3 * p.a_p) continue // 対象天体そのもの
       if (Math.abs(r - pl.a) < 5 * hillRadius(pl.a, pl.GM)) warn('near-orbit', [key], { planet: pl.name })
-      else if (pl.a > r && pl.a - r <= 0.1 * pl.a) warn('shades-other', [key], { planet: pl.name })
     }
   }
   checkOrbit(r_s, 'position')
+  // 機能位置の外側を回る惑星が群れの後ろを通るとき、その惑星の日射も減る。
+  // 対象天体と同じ幾何（§4.4）で、その惑星の位置での影の広がりから減少率を見積もる
+  for (const pl of PLANETS) {
+    if (Math.abs(pl.a - p.a_p) <= 1e-3 * p.a_p || pl.a <= r_s) continue
+    const rho_j = ((pl.a - r_s) * R_SUN) / r_s
+    const dim = Math.min(1, (geometry.A_req * b) / (Math.PI * Math.max(pl.R, rho_j) ** 2))
+    if (dim >= OTHER_DIMMING_NOTICE) warn('shades-other', ['position'], { planet: pl.name, pct: dim * 100 })
+  }
   if (!build && Math.abs(r_park - r_s) > 1e-9 * r_s) checkOrbit(r_park, 'r_park')
   if (sigma_tot < CURRENT_TECH_SIGMA) warn('beyond-tech', ['sigma_film'])
 

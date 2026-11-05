@@ -8,6 +8,13 @@ export interface ChangelogEntry {
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '0.5.1',
+    date: '2026-11-06',
+    changes: [
+      '「サンシェード・展開軌道」：ほかの惑星が群れの後ろを通るときの日射の減少を見積もり、0.1% 以上なら警告に出すようにした（計算は止めません）。',
+    ],
+  },
+  {
     version: '0.5.0',
     date: '2026-11-06',
     changes: [

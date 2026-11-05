@@ -320,6 +320,14 @@ describe('入力チェック（§6）', () => {
     expect(codes(mars())).toContain('mm-unset')
     expect(codes(mars({ lambda_mm: 0.01 / YEAR }))).not.toContain('mm-unset')
     expect(codes(mars({ r_s: 1.3 * AU, sigma_film: 3.5 * G, t_rap_goal: 1 * DAY }))).toContain('rap-goal')
+    // 火星向けを 0.95 AU に置くと、外側を回る地球が群れの後ろを通る
+    const inner = computeSunshade(mars({ r_s: 0.95 * AU, sigma_film: 1.5 * G }))
+    const other = inner.warnings.find((m) => m.code === 'shades-other')
+    expect(other?.params?.planet).toBe('地球')
+    expect(Number(other?.params?.pct)).toBeGreaterThan(1)
+    // 標準のケースでは、ほかの惑星の日射の減少は小さいので知らせない
+    expect(codes(mars())).not.toContain('shades-other')
+    expect(codes(base('earth', { transport: 'carrier' }))).not.toContain('shades-other')
     // 地球向けの L1 付近では、地球自身の軌道は警告しない
     expect(codes(base('earth', { transport: 'carrier' }))).not.toContain('near-orbit')
   })

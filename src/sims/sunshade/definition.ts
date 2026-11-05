@@ -961,7 +961,7 @@ export const sunshade: SimDefinition = {
     'rap-too-slow': '即応群が第1目標の日数までに着きません（応答時間 {days} 日）',
     'res-too-slow': '追加群が第2目標の日数までに着きません（最も早い到着 {days} 日）',
     'near-orbit': '{planet}の軌道の近くです。{planet}が近くを通るたびに、シェードの位置が重力で乱されます',
-    'shades-other': '{planet}が機能位置の外側を通るとき、{planet}の日射も一時的に減らします',
+    'shades-other': '{planet}が群れの後ろ（太陽と反対側）を通るとき、{planet}に届く日射も一時的に約 {pct}% 減ります',
     'park-mismatch': '追加群の待機軌道と機能位置の距離が違います。太陽からの距離を変える分の Δv は含まれていません（到着はさらに遅れます）',
     'rap-goal': '即応群の応答時間が目標（{days} 日）を超えています',
     'beyond-tech': '現在の技術（実績・構想）より軽い膜を前提にしています',
