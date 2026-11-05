@@ -1,5 +1,5 @@
 import { formatNumber } from './physics/format.ts'
-import type { ComputeResult, EnumParam, Inputs, Message, NumberParam, OutputDef, ParamDef, SimDefinition } from '../sims/types.ts'
+import type { ComputeResult, EnumParam, Inputs, Message, NumberParam, OutputDef, ParamDef, SimDefinition, TableParam } from '../sims/types.ts'
 
 /** 初期値の入力 */
 export function defaultInputs(def: SimDefinition): Inputs {
@@ -40,7 +40,17 @@ export function enumDisplayValue(p: EnumParam, inputs: Inputs): string {
 
 function sameValue(a: unknown, b: unknown): boolean {
   if (typeof a === 'number' && typeof b === 'number') return a === b || Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b))
+  // 表（行の配列）は、行ごと・セルごとに比べる
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((row, i) => sameRow(row, b[i]))
+  }
   return a === b
+}
+
+function sameRow(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return a === b
+  const ka = Object.keys(a)
+  return ka.length === Object.keys(b).length && ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
 }
 
 export function isVisible(p: ParamDef | OutputDef, inputs: Inputs): boolean {
@@ -73,11 +83,32 @@ function rangeText(p: NumberParam): string {
 export function validateInputs(def: SimDefinition, inputs: Inputs): Record<string, string> {
   const invalid: Record<string, string> = {}
   for (const p of def.inputs) {
-    if (p.kind !== 'number' || !isVisible(p, inputs) || paramRole(p, inputs) === 'output') continue
+    if (!isVisible(p, inputs)) continue
+    if (p.kind === 'table') {
+      const reason = checkTable(p, inputs)
+      if (reason) invalid[p.key] = reason
+      continue
+    }
+    if (p.kind !== 'number' || paramRole(p, inputs) === 'output') continue
     const reason = checkNumber(p, inputs[p.key])
     if (reason) invalid[p.key] = reason
   }
   return invalid
+}
+
+/** 表の数値のセルの範囲チェック（計算で決まるセルは見ない）。範囲内なら null */
+export function checkTable(p: TableParam, inputs: Inputs): string | null {
+  const rows = inputs[p.key]
+  if (!Array.isArray(rows)) return '表の値が読めません'
+  for (let r = 0; r < rows.length; r++) {
+    for (const col of p.columns) {
+      if (col.kind !== 'number' || col.autoKey?.(r, rows.length, inputs)) continue
+      const v = rows[r][col.key]
+      if (typeof v !== 'number' || !Number.isFinite(v)) return `${r + 1}行目の${col.label}に数値を入力してください`
+      if ((col.min !== undefined && v < col.min) || (col.max !== undefined && v > col.max)) return `${r + 1}行目の${col.label}が範囲外です`
+    }
+  }
+  return null
 }
 
 export const INVALID_INPUT = 'invalid-input'

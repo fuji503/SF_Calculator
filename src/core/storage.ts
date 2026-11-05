@@ -118,6 +118,14 @@ function normalizeUnits(def: SimDefinition, raw: unknown, side: 'inputs' | 'outp
     const unit = 'unit' in p ? p.unit : undefined
     const id = src[p.key]
     if (unit && typeof id === 'string' && unit.options.some((u) => u.id === id)) out[p.key] = id
+    // 表の列の表示単位は「表のキー.列のキー」で持つ
+    if ('columns' in p) {
+      for (const col of p.columns) {
+        const key = `${p.key}.${col.key}`
+        const cid = src[key]
+        if (col.unit && typeof cid === 'string' && col.unit.options.some((u) => u.id === cid)) out[key] = cid
+      }
+    }
   }
   return out
 }

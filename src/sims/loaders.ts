@@ -9,6 +9,7 @@ export const simLoaders: Readonly<Record<string, () => Promise<SimDefinition>>> 
   'laser-beaming': () => import('./laser-beaming/definition.ts').then((m) => m.laserBeaming),
   sunshade: () => import('./sunshade/definition.ts').then((m) => m.sunshade),
   'power-thermal': () => import('./power-thermal/definition.ts').then((m) => m.powerThermal),
+  'reactor-shield': () => import('./reactor-shield/definition.ts').then((m) => m.reactorShield),
 }
 
 const cache = new Map<string, Promise<SimDefinition>>()

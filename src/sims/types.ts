@@ -96,6 +96,11 @@ export interface TableColumn {
   options?: readonly EnumOption[]
   min?: number
   max?: number
+  /**
+   * 計算で決まるセルのとき、その値が入る出力のキーを返す（例：基準から決める層の厚さ）。
+   * null を返すセルは入力
+   */
+  autoKey?: (row: number, rowCount: number, inputs: Inputs) => string | null
 }
 
 export interface TableParam extends ParamBase {
@@ -104,6 +109,10 @@ export interface TableParam extends ParamBase {
   minRows: number
   maxRows: number
   defaultRows: readonly TableRow[]
+  /** 行を足すときに入れる値 */
+  newRow?: TableRow
+  /** 行の呼び方（例：層）。省略時は「行」 */
+  rowName?: string
 }
 
 export type ParamDef = NumberParam | EnumParam | BooleanParam | TableParam
@@ -142,7 +151,9 @@ export interface OutputDef {
   /** 出力欄には出さず、グラフのY軸にだけ使う（例：表で出す質量の内訳の各要素） */
   graphOnly?: boolean
   /** 時系列（kind: 'series'）の横軸の名前と単位。縦軸は unit */
-  seriesX?: { label: string; unit: UnitDef }
+  seriesX?: { label: string; unit: UnitDef; scale?: 'linear' | 'log' }
+  /** 時系列の縦軸の目盛り */
+  seriesY?: { scale: 'linear' | 'log' }
   /** 値の下に小さく添える文字の出力のキー（例：面積が日照中と日陰中のどちらで決まったか） */
   noteKey?: string
 }

@@ -48,6 +48,8 @@ export const ja = {
     outputs: '出力',
     graph: 'グラフ',
     auto: '自動',
+    addRow: (name: string, max: number) => `${name}を追加（最大${max}${name}）`,
+    removeRow: (n: number) => `${n}行目を削除`,
     computing: '計算中…',
   },
   graph: {

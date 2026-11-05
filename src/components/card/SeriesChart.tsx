@@ -3,7 +3,7 @@ import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fixedUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
 import type { OutputDef, OutputValue } from '../../sims/types.ts'
-import { niceTicks } from './axis.ts'
+import { logTicks, niceTicks } from './axis.ts'
 import { UnitSelect } from './NumberInput.tsx'
 
 interface Props {
@@ -22,8 +22,16 @@ export function SeriesChart({ o, card, value, onUnit }: Props) {
   const data = value.x.map((x, i) => ({ x: fromInternal(x, xUnit), y: fromInternal(value.y[i], yUnit) }))
   const xs = data.map((d) => d.x)
   const ys = data.map((d) => d.y)
-  const xTicks = niceTicks(Math.min(...xs), Math.max(...xs))
-  const yTicks = niceTicks(0, Math.max(...ys))
+  const xLog = o.seriesX?.scale === 'log'
+  const yLog = o.seriesY?.scale === 'log'
+  const pos = (v: number[]) => v.filter((x) => x > 0)
+  // 対数の目盛りはデータの範囲の中の 10ⁿ だけなので、軸の範囲はデータの範囲にする
+  const xRange: [number, number] = xLog ? [Math.min(...pos(xs)), Math.max(...pos(xs))] : [0, 0]
+  const yRange: [number, number] = yLog ? [Math.min(...pos(ys)), Math.max(...pos(ys))] : [0, 0]
+  const xTicks = xLog ? logTicks(xRange) : niceTicks(Math.min(...xs), Math.max(...xs))
+  const yTicks = yLog ? logTicks(yRange) : niceTicks(0, Math.max(...ys))
+  const xDomain = xLog ? xRange : [xTicks[0], xTicks.at(-1)!]
+  const yDomain = yLog ? yRange : [yTicks[0], yTicks.at(-1)!]
   const tick = (v: number) => formatNumber(v)
 
   return (
@@ -39,14 +47,16 @@ export function SeriesChart({ o, card, value, onUnit }: Props) {
             <XAxis
               dataKey="x"
               type="number"
-              domain={[xTicks[0], xTicks.at(-1)!]}
+              scale={xLog ? 'log' : 'linear'}
+              domain={xDomain}
               ticks={xTicks}
+              allowDataOverflow
               tickFormatter={tick}
               stroke="#64748b"
               fontSize={10}
               label={{ value: `${o.seriesX?.label ?? ''} [${xUnit.label}]`, position: 'insideBottom', offset: -10, fill: '#94a3b8', fontSize: 10 }}
             />
-            <YAxis type="number" domain={[yTicks[0], yTicks.at(-1)!]} ticks={yTicks} tickFormatter={tick} stroke="#64748b" fontSize={10} width={48} />
+            <YAxis type="number" scale={yLog ? 'log' : 'linear'} allowDataOverflow domain={yDomain} ticks={yTicks} tickFormatter={tick} stroke="#64748b" fontSize={10} width={48} />
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: 12 }}
               labelFormatter={(x) => `${formatNumber(Number(x))} ${xUnit.label}`}

@@ -8,6 +8,16 @@ export interface ChangelogEntry {
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '0.6.0',
+    date: '2026-11-06',
+    changes: [
+      '「原子炉・遮蔽」の計算を追加（炉心の大きさ、燃料、放射線、線量、影遮蔽・全方向遮蔽・地表の配置、ブームとケーブル、冷却材の放射化、崩壊熱）。',
+      '構成の例「Kilopower を月面で使う（乗員、1 km）」を追加。',
+      '表の形の入力（遮蔽の層）を追加。基準から決める層の厚さは「自動」の欄に計算結果を出す。',
+      '出力欄の時間変化のグラフで、対数の目盛りを使えるようにした（崩壊熱）。',
+    ],
+  },
+  {
     version: '0.5.1',
     date: '2026-11-06',
     changes: [

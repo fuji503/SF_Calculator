@@ -8,6 +8,7 @@ import type { BooleanParam, ComputeResult, EnumParam, Inputs, NumberParam, Param
 import { GroupSection } from './GroupSection.tsx'
 import { NumberInput, UnitSelect } from './NumberInput.tsx'
 import { ParamLabel } from './ParamLabel.tsx'
+import { TableInput } from './TableInput.tsx'
 
 interface Props {
   def: SimDefinition
@@ -110,19 +111,18 @@ function ParamRow({ p, card, result, invalid, onInputs, onUnit }: RowProps) {
       control = <Toggle p={p} value={Boolean(card.inputs[p.key])} onInputs={onInputs} />
       break
     case 'table':
-      // 表の入力は、使うモジュール（原子炉・遮蔽など）を実装するときに作る
-      control = <span className="text-xs text-slate-500">（表の入力は未対応）</span>
+      control = <TableInput p={p} card={card} result={result} onInputs={onInputs} onUnit={onUnit} />
       break
   }
 
-  const wide = p.kind === 'enum'
+  const wide = p.kind === 'enum' || p.kind === 'table'
   return (
     <div>
       <div className={`flex gap-x-3 gap-y-1 ${wide ? 'flex-col' : 'items-center justify-between'}`}>
         <div className="min-w-0 flex-1">
           <ParamLabel label={p.label} symbol={p.symbol} description={p.description} htmlFor={id} />
         </div>
-        <div className="shrink-0">{control}</div>
+        <div className={p.kind === 'table' ? 'w-full' : 'shrink-0'}>{control}</div>
       </div>
       {reason && <p className="mt-1 text-right text-xs text-rose-400">{reason}</p>}
     </div>
