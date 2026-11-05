@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Accordion } from '../components/Accordion.tsx'
 import { SimIcon } from '../components/SimIcon.tsx'
 import { t } from '../i18n/ja.ts'
+import { simExplanations } from '../sims/explanations.ts'
 import { implementedSims } from '../sims/implemented.ts'
 import type { SimModuleMeta } from '../sims/types.ts'
 
@@ -15,6 +16,7 @@ interface Props {
 
 /** シム画面（WebApp仕様書 §4.6） */
 export function SimScreen({ sim }: Props) {
+  const Explanation = simExplanations[sim.id]
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-bold text-white md:text-2xl">
@@ -24,9 +26,17 @@ export function SimScreen({ sim }: Props) {
 
       <Accordion title={t.sim.explanation}>
         <p>{sim.summary}</p>
-        <p className="mt-2 text-slate-400">{t.sim.explanationPlaceholder}</p>
-        <p className="mt-2">
-          {t.sim.spec}：
+        {Explanation ? (
+          <div className="mt-4">
+            <Suspense fallback={<p className="text-sm text-slate-500">{t.sim.loading}</p>}>
+              <Explanation />
+            </Suspense>
+          </div>
+        ) : (
+          <p className="mt-2 text-slate-400">{t.sim.explanationPlaceholder}</p>
+        )}
+        <p className="mt-4">
+          {t.sim.spec}（式の導き方と検証の詳細）：
           <a
             href={SPEC_BASE_URL + encodeURIComponent(sim.specFile)}
             target="_blank"

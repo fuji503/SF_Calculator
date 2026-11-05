@@ -8,6 +8,13 @@ export interface ChangelogEntry {
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '0.7.0',
+    date: '2026-11-06',
+    changes: [
+      '5つのシミュレータに「パラメータや計算の解説」を追加（わかること、計算の流れと主な式、結果の読み方、計算に含めないもの、計算の確かめ方）。',
+    ],
+  },
+  {
     version: '0.6.0',
     date: '2026-11-06',
     changes: [
