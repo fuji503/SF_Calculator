@@ -36,3 +36,14 @@ export function logTicks([lo, hi]: [number, number]): number[] {
   return out
 }
 
+/** lo〜hi を含む、1・2・5 × 10ⁿ 刻みのきりのよい目盛り（4〜6本程度） */
+export function niceTicks(lo: number, hi: number): number[] {
+  if (!(hi > lo)) return [lo, lo + 1]
+  const raw = (hi - lo) / 5
+  const p = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw)!
+  const start = Math.floor(lo / step) * step
+  const ticks: number[] = []
+  for (let v = start; v < hi + step * 0.999; v += step) ticks.push(Number(v.toPrecision(12)))
+  return ticks
+}

@@ -63,6 +63,7 @@ export const U = {
   K: { id: 'K', label: 'K', factor: 1 },
   degC: { id: 'degC', label: '℃', factor: 1, offset: 273.15 },
   m2: { id: 'm2', label: 'm²', factor: 1 },
+  kgm2: { id: 'kg/m2', label: 'kg/m²', factor: 1 },
   km2: { id: 'km2', label: 'km²', factor: 1e6 },
   kg: { id: 'kg', label: 'kg', factor: 1 },
   t: { id: 't', label: 't', factor: 1e3 },
@@ -102,6 +103,11 @@ export const U = {
   kgkWe: { id: 'kg/kWe', label: 'kg/kWe', factor: 1e-3 },
   perS: { id: '1/s', label: '1/s', factor: 1 },
   pctDay: { id: '%/day', label: '%/日', factor: 0.01 / DAY },
+  pctYear: { id: '%/year', label: '%/年', factor: 0.01 / YEAR },
+  gm2: { id: 'g/m2', label: 'g/m²', factor: 1e-3 },
+  mps: { id: 'm/s', label: 'm/s', factor: 1 },
+  kms: { id: 'km/s', label: 'km/s', factor: 1e3 },
+  kgkW: { id: 'kg/kW', label: 'kg/kW', factor: 1e-3 },
 } as const satisfies Record<string, UnitOption>
 
 /** 単位を1つだけ持つ（選べない）パラメータ用 */
@@ -142,4 +148,14 @@ export const unitDefs = {
   heatTransfer: fixedUnit('W/(m²·K)'),
   density: fixedUnit('kg/m³'),
   arealDensity: fixedUnit('kg/m²'),
+  /** 膜のような軽いものの面密度 */
+  filmDensity: { options: [U.kgm2, U.gm2], defaultId: 'g/m2' },
+  durationLong: { options: [U.s, U.day, U.month, U.year] },
+  velocity: { options: [U.mps, U.kms] },
+  acceleration: fixedUnit('m/s²'),
+  force: fixedUnit('N'),
+  perPower: { options: [U.kgW, U.kgkW], defaultId: 'kg/kW' },
+  yearlyLoss: { options: [U.perS, U.pctYear], defaultId: '%/year' },
+  count: fixedUnit('基'),
+  gravParam: fixedUnit('m³/s²'),
 } as const satisfies Record<string, UnitDef>

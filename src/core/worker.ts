@@ -2,7 +2,7 @@
  * 計算を画面とは別の処理で動かす Web Worker（WebApp仕様書 §9）。
  * 依頼は届いた順に処理する。古い依頼の結果を捨てるのは呼び出し側（hooks/useComputation.ts）。
  */
-import { simDefinitions } from '../sims/definitions.ts'
+import { loadDefinition } from '../sims/loaders.ts'
 import { evaluate } from './evaluate.ts'
 import { runSweep } from './sweep.ts'
 import type { ComputeRequest, ComputeResponse } from './computeTypes.ts'
@@ -13,9 +13,10 @@ const ctx = self as unknown as {
   postMessage: (res: ComputeResponse) => void
 }
 
-ctx.onmessage = (e: MessageEvent<ComputeRequest>) => {
+ctx.onmessage = async (e: MessageEvent<ComputeRequest>) => {
   const req = e.data
-  const def = simDefinitions[req.moduleId]
+  // 定義は、そのモジュールの依頼が初めて来たときに読み込む
+  const def = await loadDefinition(req.moduleId)?.catch(() => null)
   let res: ComputeResponse
   if (!def) {
     res = { reqId: req.reqId, kind: 'failed', error: `unknown module: ${req.moduleId}` }

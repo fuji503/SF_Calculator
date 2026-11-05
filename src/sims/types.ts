@@ -141,6 +141,8 @@ export interface OutputDef {
   group?: string
   /** 出力欄には出さず、グラフのY軸にだけ使う（例：表で出す質量の内訳の各要素） */
   graphOnly?: boolean
+  /** 時系列（kind: 'series'）の横軸の名前と単位。縦軸は unit */
+  seriesX?: { label: string; unit: UnitDef }
   /** 値の下に小さく添える文字の出力のキー（例：面積が日照中と日陰中のどちらで決まったか） */
   noteKey?: string
 }
@@ -152,6 +154,8 @@ export interface Message {
   keys?: string[]
   /** 警告のうち、注意を促すだけのもの */
   level?: 'info'
+  /** 文言の {名前} に入れる値（数値は有効数字4桁で書く）。例：最短の移動時間 {days} 日 */
+  params?: Record<string, number | string>
 }
 
 export interface ComputeResult {

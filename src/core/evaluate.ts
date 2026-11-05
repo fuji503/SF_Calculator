@@ -1,3 +1,4 @@
+import { formatNumber } from './physics/format.ts'
 import type { ComputeResult, EnumParam, Inputs, Message, NumberParam, OutputDef, ParamDef, SimDefinition } from '../sims/types.ts'
 
 /** 初期値の入力 */
@@ -105,7 +106,13 @@ export function evaluate(def: SimDefinition, inputs: Inputs): ComputeResult {
 
 /** メッセージの文言。モジュールの文言、共通の文言の順に探す */
 export function messageText(def: SimDefinition, m: Message): string {
-  return def.messages[m.code] ?? commonMessages[m.code] ?? m.code
+  const text = def.messages[m.code] ?? commonMessages[m.code] ?? m.code
+  if (!m.params) return text
+  return text.replace(/\{(\w+)\}/g, (all, name: string) => {
+    const v = m.params![name]
+    if (v === undefined) return all
+    return typeof v === 'number' ? formatNumber(v) : v
+  })
 }
 
 /** モジュールによらない共通のメッセージ */

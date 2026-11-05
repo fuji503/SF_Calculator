@@ -5,6 +5,7 @@ import type { Card } from '../../core/storage.ts'
 import { t } from '../../i18n/ja.ts'
 import type { ComputeResult, OutputDef, SimDefinition } from '../../sims/types.ts'
 import { GroupSection } from './GroupSection.tsx'
+import { SeriesChart } from './SeriesChart.tsx'
 import { UnitSelect } from './NumberInput.tsx'
 import { ParamLabel } from './ParamLabel.tsx'
 
@@ -96,6 +97,18 @@ function OutputRow({
   large?: boolean
 }) {
   const v = result?.outputs[o.key]
+  if (o.kind === 'series') {
+    return (
+      <div>
+        <dt>
+          <ParamLabel label={o.label} symbol={o.symbol} description={o.description} />
+        </dt>
+        <dd className="mt-1">
+          {v?.kind === 'series' ? <SeriesChart o={o} card={card} value={v} onUnit={onUnit} /> : <span className="text-sm text-slate-500">—</span>}
+        </dd>
+      </div>
+    )
+  }
   if (o.kind === 'table') {
     return (
       <div>

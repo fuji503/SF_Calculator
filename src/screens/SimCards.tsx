@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CardList } from '../components/card/CardList.tsx'
 import { parseImport, timestamp, toExportFile } from '../core/storage.ts'
 import { useCards } from '../hooks/useCards.ts'
-import { simDefinitions } from '../sims/definitions.ts'
+import { loadDefinition } from '../sims/loaders.ts'
 import { t } from '../i18n/ja.ts'
 import type { SimDefinition } from '../sims/types.ts'
 import { downloadText, pickTextFile } from '../utils/download.ts'
@@ -12,7 +12,23 @@ import { downloadText, pickTextFile } from '../utils/download.ts'
  * グラフや数式のライブラリが大きいので、シム画面を開いたときに読み込む。
  */
 export default function SimCards({ moduleId }: { moduleId: string }) {
-  return <Cards def={simDefinitions[moduleId]} />
+  const [loaded, setLoaded] = useState<{ id: string; def: SimDefinition | null } | null>(null)
+  useEffect(() => {
+    let alive = true
+    const p = loadDefinition(moduleId)
+    if (!p) return
+    p.then(
+      (def) => alive && setLoaded({ id: moduleId, def }),
+      () => alive && setLoaded({ id: moduleId, def: null }),
+    )
+    return () => {
+      alive = false
+    }
+  }, [moduleId])
+  if (!loaded || loaded.id !== moduleId) return <p className="text-sm text-slate-400">{t.sim.loading}</p>
+  if (!loaded.def) return <p className="text-sm text-rose-300">{t.sim.loadFailed}</p>
+  // モジュールが変わったら、カードの状態を作り直す
+  return <Cards key={moduleId} def={loaded.def} />
 }
 
 function Cards({ def }: { def: SimDefinition }) {

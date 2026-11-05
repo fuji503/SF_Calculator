@@ -23,7 +23,7 @@ describe('モジュール定義の共通チェック', () => {
         expect(validateInputs(def, inputs)).toEqual({})
         const r = evaluate(def, inputs)
         expect(r.errors).toEqual([])
-        for (const o of def.outputs) if (isVisible(o, inputs)) expect(r.outputs[o.key]).toBeDefined()
+        for (const o of def.outputs) if (isVisible(o, inputs)) expect(r.outputs[o.key], o.key).toBeDefined()
       })
 
       it('出力になるパラメータは、計算結果に同じキーで入る', () => {
@@ -90,5 +90,11 @@ describe('implementedSims', () => {
   it('definitions.ts と一致する', async () => {
     const { implementedSims } = await import('../sims/implemented.ts')
     expect([...implementedSims].sort()).toEqual(Object.keys(simDefinitions).sort())
+  })
+
+  it('読み込み（loaders.ts）とも一致し、同じ定義を読み込む', async () => {
+    const { simLoaders } = await import('../sims/loaders.ts')
+    expect(Object.keys(simLoaders).sort()).toEqual(Object.keys(simDefinitions).sort())
+    for (const [id, load] of Object.entries(simLoaders)) expect(await load()).toBe(simDefinitions[id])
   })
 })

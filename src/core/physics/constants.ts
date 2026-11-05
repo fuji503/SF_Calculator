@@ -26,3 +26,18 @@ export const SUN_ANGULAR_DIAMETER_1AU = 9.3e-3
  * L⊙ = I(1AU) / (π (θ/2)²) ≈ 2.004×10⁷。距離によらず一定。
  */
 export const SUN_RADIANCE = SOLAR_CONSTANT_1AU / (Math.PI * (SUN_ANGULAR_DIAMETER_1AU / 2) ** 2)
+
+/** 太陽の重力定数 GM⊙ [m³/s²]（IAU 2015 の公称値 1.3271244×10²⁰） */
+export const GM_SUN = 1.32712e20
+
+/** 太陽の光度 [W]（IAU 2015 決議 B3 の公称値） */
+export const L_SUN = 3.828e26
+
+/** 太陽の半径 [m]（IAU 2015 決議 B3 の公称値） */
+export const R_SUN = 6.957e8
+
+/** 標準重力加速度 [m/s²]（定義値） */
+export const G0 = 9.80665
+
+/** 1年 [s]（ユリウス年、365.25日） */
+export const YEAR = 365.25 * 86_400

@@ -22,6 +22,7 @@ export const ja = {
     spec: '仕様書',
     notReady: 'このシミュレータは準備中です。計算結果カードは今後のバージョンで追加します。',
     loading: '読み込み中…',
+    loadFailed: '計算の読み込みに失敗しました。画面を再読み込みしてください',
     add: '新しい計算を追加',
     importJson: 'JSON読込',
     saveAll: '全件保存',

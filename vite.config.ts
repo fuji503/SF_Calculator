@@ -11,9 +11,12 @@ export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss()],
   build: {
-    // シム画面のチャンク（グラフと数式のライブラリを含む）は約 730 kB。遅れて読み込むので許容する
+    // シム画面のチャンク（グラフ・数式・並び替えのライブラリ）は約 730 kB。遅れて読み込むので許容する。
+    // 各モジュールの計算は別のチャンクにする（sims/loaders.ts）
     chunkSizeWarningLimit: 800,
   },
+  // Worker も ES モジュールにして、モジュールの定義を必要なときだけ読み込む
+  worker: { format: 'es' },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
