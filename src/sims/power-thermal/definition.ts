@@ -437,7 +437,7 @@ const baseInputs: ParamDef[] = [
     key: 'reactor',
     group: 'config',
     label: '原子炉',
-    description: '「自動で決める」は、日照中の電源が「なし」のときだけ選べる（原子炉と受電だけで日陰中もまかなう大きさにする）',
+    description: '「自動で決める」は、日照中の電源が「なし」のときだけ選べる（原子炉と外部電源だけで日陰中もまかなう大きさにする）',
     options: [
       { value: 'none', label: '使わない' },
       { value: 'auto', label: '熱出力を自動で決める', disabledWhen: hasSun },
@@ -449,8 +449,9 @@ const baseInputs: ParamDef[] = [
     kind: 'enum',
     key: 'beam',
     group: 'config',
-    label: '受電',
-    description: 'レーザや太陽光の送電で受け取る電力。「常時」は日陰中も受け取れる場合',
+    label: '外部電源',
+    description:
+      'この設備の外から受け取る（買う）電力。自分の発電設備の大きさや質量には含めない。例：送電衛星からレーザや太陽光で送られてくる電力、基地の電力網から引く電力。「常時」は日陰中も受け取れる場合（日陰にならない場所から送るなど）',
     options: [
       { value: 'none', label: '使わない' },
       { value: 'always', label: '常時' },
@@ -597,14 +598,14 @@ const baseInputs: ParamDef[] = [
   },
   ...engineParams('r', 'eng_r', 'stirling', '原子炉の高温側の温度'),
 
-  // §3.6 (d) 受電
+  // §3.6 (d) 外部電源（受電）
   {
     kind: 'number',
     key: 'P_beam',
     group: 'beam',
-    label: '受電電力（直流に変えたあと）',
+    label: '外部電源から受け取る電力（直流に変えたあと）',
     symbol: 'P_{beam}',
-    description: '送電モジュールで計算した受電点の電力を入れる。受電設備の面積と質量は送電モジュールで扱う',
+    description: '外から受け取る電力。送電モジュールと組み合わせるときは、そちらで計算した受電点の電力を入れる。受け取る設備（受光パネルなど）の面積と質量は、ここには含めない',
     unit: power,
     default: 0,
     min: 0,
@@ -736,7 +737,7 @@ const baseInputs: ParamDef[] = [
     key: 'tes_charge',
     group: 'tes_charge',
     label: '熱の入れ方（原子炉から直接送る分の残り）',
-    description: '電気ヒータ：日照中の電源や受電の電力で加熱する。太陽炉：集光鏡で直接加熱する',
+    description: '電気ヒータ：日照中の電源や外部電源の電力で加熱する。太陽炉：集光鏡で直接加熱する',
     options: [
       { value: 'heater', label: '電気ヒータ' },
       { value: 'solar_furnace', label: '太陽炉' },
@@ -983,7 +984,7 @@ const outputs: OutputDef[] = [
     label: '一定の電源の電力（日照中）',
     symbol: 'P_{c,sun}',
     unit: power,
-    description: '原子炉と受電の合計。日照中に蓄熱体へ直接送る熱の分は除く',
+    description: '原子炉と外部電源の合計。日照中に蓄熱体へ直接送る熱の分は除く',
     visibleWhen: (i) => withReactor(i) || withBeam(i),
   },
   {
@@ -1147,7 +1148,7 @@ export const powerThermal: SimDefinition = {
     { id: 'eng_s', label: '熱機関（太陽熱用）', parent: 'solar', visibleWhen: isSolarThermal },
     { id: 'reactor', label: '原子炉', visibleWhen: withReactor },
     { id: 'eng_r', label: '熱機関（原子炉用）', parent: 'reactor' },
-    { id: 'beam', label: '受電', visibleWhen: withBeam },
+    { id: 'beam', label: '外部電源', visibleWhen: withBeam },
     { id: 'bat', label: '蓄電池' },
     { id: 'tes', label: '越夜用の蓄熱体', visibleWhen: isTes },
     { id: 'tes_medium', label: '蓄熱材', parent: 'tes' },
@@ -1179,7 +1180,7 @@ export const powerThermal: SimDefinition = {
     'tmin-below-cold': '蓄熱体の最低温度は、蓄熱体用の熱機関の低温側の温度より高くしてください',
     'tmax-above-reactor': '原子炉の熱で直接ためる場合、最高温度は原子炉の出口温度から熱交換の温度差を引いた値以下にしてください',
     'melt-range': '融解の温度は、最低温度と最高温度の間にしてください',
-    insufficient: '日照中の電力が足りません。日照中の電源を選ぶか、原子炉の熱出力や受電電力を増やしてください',
+    insufficient: '日照中の電力が足りません。日照中の電源を選ぶか、原子炉の熱出力や外部電源の電力を増やしてください',
     'cannot-reject': 'この温度では、環境へ熱を捨てられません（ヒートポンプなどの能動冷却が必要です）',
     'reverse-flux': '放射（または対流）では、ラジエータが逆に熱を受け取っています',
     'weak-sun': '日射が非常に弱いため、太陽電池が非常に大きくなります',

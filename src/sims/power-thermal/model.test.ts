@@ -409,7 +409,7 @@ describe('物理的な性質', () => {
     expect(b.M_tes).toBeLessThan(a.M_tes)
   })
 
-  it('常時の受電があると、日陰中に蓄電池から出す量が減る', () => {
+  it('常時の外部電源があると、日陰中に蓄電池から出す量が減る', () => {
     const a = outputsOf(base('lunar', constant(10 * KW)))
     const b = outputsOf(base('lunar', { ...constant(10 * KW), beam: 'always', P_beam: 4 * KW }))
     expect(b.E_bn).toBeCloseTo(a.E_bn * 0.6, 0)
