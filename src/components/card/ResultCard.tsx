@@ -44,7 +44,12 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
 
   const setInputs = (fn: (i: Inputs) => Inputs) => onChange((c) => ({ ...c, inputs: fn(c.inputs) }))
   const setGraph = (fn: (g: GraphSettings) => GraphSettings) => onChange((c) => ({ ...c, graph: fn(c.graph) }))
-  const setUi = (k: keyof Card['ui']) => onChange((c) => ({ ...c, ui: { ...c.ui, [k]: !c.ui[k] } }))
+  const setUi = (k: 'ioOpen' | 'graphOpen') => onChange((c) => ({ ...c, ui: { ...c.ui, [k]: !c.ui[k] } }))
+  const toggleGroup = (id: string) =>
+    onChange((c) => {
+      const closed = c.ui.closed.includes(id) ? c.ui.closed.filter((x) => x !== id) : [...c.ui.closed, id]
+      return { ...c, ui: { ...c.ui, closed } }
+    })
 
   const saveJson = () => {
     const file = toExportFile(def, [card])
@@ -53,6 +58,9 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
 
   const saveImage = async () => {
     if (!ref.current) return
+    // 画面に残す出力欄は、スクロールの枠を外して全体を画像に入れる
+    const sticky = [...ref.current.querySelectorAll<HTMLElement>('[data-sticky-outputs]')]
+    for (const el of sticky) el.style.cssText = 'position:static;max-height:none;overflow:visible'
     try {
       const url = await toPng(ref.current, {
         pixelRatio: 2,
@@ -62,6 +70,8 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
       downloadUrl(`${def.id}_${safeFileName(card.title)}_${timestamp()}.png`, url)
     } catch {
       window.alert(t.card.imageFailed)
+    } finally {
+      for (const el of sticky) el.style.cssText = ''
     }
   }
 
@@ -121,9 +131,14 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
               invalid={invalid}
               onInputs={setInputs}
               onUnit={(k, u) => onChange((c) => ({ ...c, inputUnits: { ...c.inputUnits, [k]: u } }))}
+              onToggleGroup={toggleGroup}
             />
           </div>
-          <div>
+          {/* 入力欄が長いモジュールでは、PCでスクロールしても出力欄を画面に残す */}
+          <div
+            data-sticky-outputs={def.collapsibleGroups || undefined}
+            className={def.collapsibleGroups ? 'md:sticky md:top-16 md:max-h-[calc(100vh-5rem)] md:self-start md:overflow-y-auto md:pr-1' : ''}
+          >
             <h3 className="mb-2 text-sm font-semibold text-slate-200">{t.card.outputs}</h3>
             <OutputPanel
               def={def}
@@ -131,6 +146,7 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
               result={result}
               pending={pending}
               onUnit={(k, u) => onChange((c) => ({ ...c, outputUnits: { ...c.outputUnits, [k]: u } }))}
+              onToggleGroup={toggleGroup}
             />
           </div>
         </div>

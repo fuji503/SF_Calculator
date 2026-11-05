@@ -17,7 +17,8 @@ export interface Card {
   /** 出力の表示単位の id */
   outputUnits: Record<string, string>
   graph: GraphSettings
-  ui: { ioOpen: boolean; graphOpen: boolean }
+  /** closed：閉じている入力・出力のまとまりの id（初期状態はすべて開く） */
+  ui: { ioOpen: boolean; graphOpen: boolean; closed: string[] }
 }
 
 export const APP_ID = 'sf-infra-simulator'
@@ -55,7 +56,7 @@ export function newCard(def: SimDefinition, cards: readonly Card[]): Card {
     inputUnits: {},
     outputUnits: {},
     graph: defaultGraph(def, inputs),
-    ui: { ioOpen: true, graphOpen: true },
+    ui: { ioOpen: true, graphOpen: true, closed: [] },
   }
 }
 
@@ -157,6 +158,7 @@ export function normalizeCard(def: SimDefinition, raw: unknown, fallbackTitle: s
     ui: {
       ioOpen: typeof ui.ioOpen === 'boolean' ? ui.ioOpen : true,
       graphOpen: typeof ui.graphOpen === 'boolean' ? ui.graphOpen : true,
+      closed: Array.isArray(ui.closed) ? ui.closed.filter((x): x is string => typeof x === 'string') : [],
     },
   }
 }

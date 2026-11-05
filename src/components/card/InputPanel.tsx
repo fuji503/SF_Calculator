@@ -1,10 +1,11 @@
 import { useId } from 'react'
-import { isVisible, paramRole, selectEnum } from '../../core/evaluate.ts'
+import { enumDisplayValue, isVisible, paramRole, selectEnum } from '../../core/evaluate.ts'
 import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
 import { t } from '../../i18n/ja.ts'
-import type { BooleanParam, ComputeResult, EnumParam, Inputs, NumberParam, ParamDef, SimDefinition } from '../../sims/types.ts'
+import type { BooleanParam, ComputeResult, EnumParam, Inputs, NumberParam, ParamDef, ParamGroup, SimDefinition } from '../../sims/types.ts'
+import { GroupSection } from './GroupSection.tsx'
 import { NumberInput, UnitSelect } from './NumberInput.tsx'
 import { ParamLabel } from './ParamLabel.tsx'
 
@@ -16,11 +17,16 @@ interface Props {
   invalid: Record<string, string>
   onInputs: (fn: (inputs: Inputs) => Inputs) => void
   onUnit: (key: string, unitId: string) => void
+  /** まとまりの開け閉め（collapsibleGroups のとき） */
+  onToggleGroup: (id: string) => void
 }
 
 /** 入力欄（WebApp仕様書 §4.7 入力・出力欄） */
-export function InputPanel({ def, card, result, invalid, onInputs, onUnit }: Props) {
+export function InputPanel({ def, card, result, invalid, onInputs, onUnit, onToggleGroup }: Props) {
   const visible = def.inputs.filter((p) => isVisible(p, card.inputs))
+  if (def.collapsibleGroups) {
+    return <CollapsibleInputs {...{ def, card, result, invalid, onInputs, onUnit, onToggleGroup, visible }} />
+  }
   return (
     <div className="space-y-4">
       {def.groups.map((g) => {
@@ -44,7 +50,34 @@ export function InputPanel({ def, card, result, invalid, onInputs, onUnit }: Pro
   )
 }
 
-type RowProps = Omit<Props, 'def'> & { p: ParamDef }
+/** まとまりを見出しで開け閉めする入力欄。子のまとまりは親の中に入れる */
+function CollapsibleInputs({ def, card, visible, onToggleGroup, ...rest }: Props & { visible: ParamDef[] }) {
+  const groupVisible = (g: ParamGroup) => g.visibleWhen?.(card.inputs) ?? true
+  const children = (id: string) => def.groups.filter((g) => g.parent === id && groupVisible(g))
+  const own = (id: string) => visible.filter((p) => p.group === id)
+  const hasContent = (g: ParamGroup): boolean => own(g.id).length > 0 || children(g.id).some(hasContent)
+  const rows = (id: string) => own(id).map((p) => <ParamRow key={p.key} p={p} card={card} {...rest} />)
+
+  const section = (g: ParamGroup, nested: boolean) => (
+    <GroupSection key={g.id} title={g.label} nested={nested} open={!card.ui.closed.includes(g.id)} onToggle={() => onToggleGroup(g.id)}>
+      {rows(g.id)}
+      {children(g.id)
+        .filter(hasContent)
+        .map((c) => section(c, true))}
+    </GroupSection>
+  )
+
+  return (
+    <div className="space-y-2">
+      {visible.filter((p) => !p.group).map((p) => <ParamRow key={p.key} p={p} card={card} {...rest} />)}
+      {def.groups
+        .filter((g) => !g.parent && groupVisible(g) && hasContent(g))
+        .map((g) => section(g, false))}
+    </div>
+  )
+}
+
+type RowProps = Omit<Props, 'def' | 'onToggleGroup'> & { p: ParamDef }
 
 function ParamRow({ p, card, result, invalid, onInputs, onUnit }: RowProps) {
   const id = useId()
@@ -71,7 +104,7 @@ function ParamRow({ p, card, result, invalid, onInputs, onUnit }: RowProps) {
         )
       break
     case 'enum':
-      control = <EnumSelect id={id} p={p} value={String(card.inputs[p.key])} onInputs={onInputs} />
+      control = <EnumSelect id={id} p={p} inputs={card.inputs} onInputs={onInputs} />
       break
     case 'boolean':
       control = <Toggle p={p} value={Boolean(card.inputs[p.key])} onInputs={onInputs} />
@@ -112,11 +145,11 @@ function AutoValue({ p, card, result, onUnit }: { p: NumberParam; card: Card; re
   )
 }
 
-function EnumSelect({ id, p, value, onInputs }: { id: string; p: EnumParam; value: string; onInputs: Props['onInputs'] }) {
+function EnumSelect({ id, p, inputs, onInputs }: { id: string; p: EnumParam; inputs: Inputs; onInputs: Props['onInputs'] }) {
   return (
     <select
       id={id}
-      value={value}
+      value={enumDisplayValue(p, inputs)}
       onChange={(e) => {
         const v = e.target.value
         // 選んだ選択肢のプリセット値も一緒に入れる。その後も手で上書きできる
@@ -125,7 +158,7 @@ function EnumSelect({ id, p, value, onInputs }: { id: string; p: EnumParam; valu
       className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
     >
       {p.options.map((o) => (
-        <option key={o.value} value={o.value}>
+        <option key={o.value} value={o.value} disabled={o.disabledWhen?.(inputs)}>
           {o.label}
         </option>
       ))}

@@ -21,6 +21,27 @@ export function selectEnum(p: EnumParam, value: string, inputs: Inputs): Inputs 
   return { ...next, ...presetFor(p, value, next) }
 }
 
+/**
+ * 選択欄に表示する値。プリセットで入れた値が手で変えられていれば「カスタム」。
+ * 計算には保存している値を使う（ユーザーが選んだ方式のまま）
+ */
+export function enumDisplayValue(p: EnumParam, inputs: Inputs): string {
+  const value = String(inputs[p.key])
+  if (!p.customValue || value === p.customValue) return value
+  const preset = presetFor(p, value, inputs)
+  const keys = p.customKeys ?? Object.keys(preset)
+  for (const k of keys) {
+    if (!(k in preset)) continue
+    if (!sameValue(preset[k], inputs[k])) return p.customValue
+  }
+  return value
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') return a === b || Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b))
+  return a === b
+}
+
 export function isVisible(p: ParamDef | OutputDef, inputs: Inputs): boolean {
   return p.visibleWhen?.(inputs) ?? true
 }

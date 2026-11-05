@@ -59,6 +59,8 @@ export interface NumberParam extends ParamBase {
 export interface EnumOption {
   value: string
   label: string
+  /** true を返すと選べない（灰色で出す） */
+  disabledWhen?: (inputs: Inputs) => boolean
 }
 
 export interface EnumParam extends ParamBase {
@@ -70,6 +72,13 @@ export interface EnumParam extends ParamBase {
    * ほかの入力にもよるとき（例：大気の光学的厚さは、発振器の方式と大気の組み合わせで決まる）は関数にする
    */
   presets?: Record<string, Inputs> | ((value: string, inputs: Inputs) => Inputs)
+  /**
+   * 「カスタム」の選択肢の値。プリセットで入れた値を手で変えると、選択欄はこの値を表示する。
+   * 保存している値は変えないので、元の値に戻すとプリセットの名前の表示に戻る
+   */
+  customValue?: string
+  /** 「カスタム」かどうかを見るキー。省略時はプリセットで入れるすべてのキー */
+  customKeys?: readonly string[]
 }
 
 export interface BooleanParam extends ParamBase {
@@ -102,6 +111,10 @@ export type ParamDef = NumberParam | EnumParam | BooleanParam | TableParam
 export interface ParamGroup {
   id: string
   label: string
+  /** 中に入れる親のまとまり（1段だけ） */
+  parent?: string
+  /** false を返すと、まとまりごと隠す */
+  visibleWhen?: (inputs: Inputs) => boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +137,12 @@ export interface OutputDef {
   description?: string
   /** false を返すと表示しない（例：化学レーザのときだけ燃料消費率を出す） */
   visibleWhen?: (inputs: Inputs) => boolean
+  /** 出力欄のまとまり（SimDefinition.outputGroups の id） */
+  group?: string
+  /** 出力欄には出さず、グラフのY軸にだけ使う（例：表で出す質量の内訳の各要素） */
+  graphOnly?: boolean
+  /** 値の下に小さく添える文字の出力のキー（例：面積が日照中と日陰中のどちらで決まったか） */
+  noteKey?: string
 }
 
 /** 計算のメッセージ。文言はモジュールの messages から code で引く */
@@ -152,6 +171,10 @@ export interface SimDefinition {
   /** JSON の互換性のためのバージョン */
   version: number
   groups: readonly ParamGroup[]
+  /** true なら、入力・出力のまとまりを見出しで開け閉めできる（入力の多いモジュール用） */
+  collapsibleGroups?: boolean
+  /** 出力欄のまとまり（主要な出力はまとまりに入れない） */
+  outputGroups?: readonly ParamGroup[]
   inputs: readonly ParamDef[]
   outputs: readonly OutputDef[]
   /** メッセージの code → 文言 */

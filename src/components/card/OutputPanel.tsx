@@ -4,6 +4,7 @@ import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
 import { t } from '../../i18n/ja.ts'
 import type { ComputeResult, OutputDef, SimDefinition } from '../../sims/types.ts'
+import { GroupSection } from './GroupSection.tsx'
 import { UnitSelect } from './NumberInput.tsx'
 import { ParamLabel } from './ParamLabel.tsx'
 
@@ -13,14 +14,22 @@ interface Props {
   result: ComputeResult | null
   pending: boolean
   onUnit: (key: string, unitId: string) => void
+  /** まとまりの開け閉め（collapsibleGroups のとき） */
+  onToggleGroup: (id: string) => void
 }
 
+/** 出力のまとまりの開閉状態は、入力のまとまりと同じ所に、この接頭辞を付けて保存する */
+export const OUTPUT_GROUP_PREFIX = 'out:'
+
 /** 出力欄：値、単位、警告（⚠）、エラー（✖） */
-export function OutputPanel({ def, card, result, pending, onUnit }: Props) {
+export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup }: Props) {
   const failed = !result || result.errors.length > 0
-  const shown = def.outputs.filter((o) => isVisible(o, card.inputs))
+  const shown = def.outputs.filter((o) => !o.graphOnly && isVisible(o, card.inputs))
   const primary = shown.filter((o) => o.primary)
   const others = shown.filter((o) => !o.primary)
+  const groups = def.outputGroups ?? []
+  const ungrouped = others.filter((o) => !o.group || !groups.some((g) => g.id === o.group))
+  const row = (o: OutputDef) => <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} />
 
   return (
     <div className="space-y-3">
@@ -43,11 +52,19 @@ export function OutputPanel({ def, card, result, pending, onUnit }: Props) {
           <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} large />
         ))}
       </dl>
-      <dl className={`space-y-1 border-t border-slate-800 pt-2 ${failed ? 'opacity-50' : ''}`}>
-        {others.map((o) => (
-          <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} />
-        ))}
-      </dl>
+      {ungrouped.length > 0 && (
+        <dl className={`space-y-1 border-t border-slate-800 pt-2 ${failed ? 'opacity-50' : ''}`}>{ungrouped.map(row)}</dl>
+      )}
+      {groups.map((g) => {
+        const items = others.filter((o) => o.group === g.id)
+        if (items.length === 0 || !(g.visibleWhen?.(card.inputs) ?? true)) return null
+        const id = OUTPUT_GROUP_PREFIX + g.id
+        return (
+          <GroupSection key={g.id} title={g.label} open={!card.ui.closed.includes(id)} onToggle={() => onToggleGroup(id)}>
+            <dl className={`space-y-1 ${failed ? 'opacity-50' : ''}`}>{items.map(row)}</dl>
+          </GroupSection>
+        )
+      })}
 
       {result && result.warnings.length > 0 && (
         <ul className="space-y-1">
@@ -79,10 +96,24 @@ function OutputRow({
   large?: boolean
 }) {
   const v = result?.outputs[o.key]
+  if (o.kind === 'table') {
+    return (
+      <div>
+        <dt>
+          <ParamLabel label={o.label} symbol={o.symbol} description={o.description} />
+        </dt>
+        <dd>
+          <OutputValueText o={o} card={card} value={v} large={false} />
+        </dd>
+      </div>
+    )
+  }
+  const note = o.noteKey ? result?.outputs[o.noteKey] : undefined
   return (
     <div className="flex items-center justify-between gap-x-3">
       <dt className="min-w-0 flex-1">
         <ParamLabel label={o.label} symbol={o.symbol} description={o.description} />
+        {note?.kind === 'text' && note.value && <span className="block text-xs text-slate-500">{note.value}</span>}
       </dt>
       <dd className="flex shrink-0 items-center gap-1">
         <OutputValueText o={o} card={card} value={v} large={large} />
@@ -107,10 +138,15 @@ function OutputValueText({ o, card, value, large }: { o: OutputDef; card: Card; 
     case 'table':
       return (
         <table className="mt-1 w-full text-xs">
+          <colgroup>
+            {value.columns.map((c, i) => (
+              <col key={c} className={i === 0 ? '' : 'w-24'} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               {value.columns.map((c) => (
-                <th key={c} className="px-1 text-left font-medium text-slate-400">
+                <th key={c} className="px-1 py-0.5 text-left font-medium text-slate-400 [&:not(:first-child)]:text-right">
                   {c}
                 </th>
               ))}
@@ -118,9 +154,9 @@ function OutputValueText({ o, card, value, large }: { o: OutputDef; card: Card; 
           </thead>
           <tbody>
             {value.rows.map((r, i) => (
-              <tr key={i}>
+              <tr key={i} className="border-t border-slate-800">
                 {r.map((cell, j) => (
-                  <td key={j} className="px-1 font-mono text-slate-200">
+                  <td key={j} className={`px-1 py-0.5 text-slate-200 ${typeof cell === 'number' ? 'text-right font-mono' : j > 0 ? 'text-right' : ''}`}>
                     {typeof cell === 'number' ? formatNumber(cell) : cell}
                   </td>
                 ))}

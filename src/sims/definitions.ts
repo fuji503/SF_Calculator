@@ -1,4 +1,5 @@
 import { laserBeaming } from './laser-beaming/definition.ts'
+import { powerThermal } from './power-thermal/definition.ts'
 import { solarBeaming } from './solar-beaming/definition.ts'
 import type { SimDefinition } from './types.ts'
 
@@ -6,4 +7,5 @@ import type { SimDefinition } from './types.ts'
 export const simDefinitions: Readonly<Record<string, SimDefinition>> = {
   [solarBeaming.id]: solarBeaming,
   [laserBeaming.id]: laserBeaming,
+  [powerThermal.id]: powerThermal,
 }
