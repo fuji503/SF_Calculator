@@ -16,6 +16,14 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.1.0',
+    date: '2026-11-06',
+    changes: [
+      '画面の色をライト／ダークで選べるようにした（メニューのいちばん下。初期値は端末の設定に合わせる「自動」）。グラフと画像の保存の色も切り替わる。',
+      'シミュレータのアイコンを新しくした（太陽光集光・送光：お椀形の鏡で光を集める形、レーザ発振・送電：懐中電灯、サンシェード・展開軌道：パラソル、原子炉・遮蔽：格納容器と原子力のマーク）。',
+    ],
+  },
+  {
     version: '1.0.1',
     date: '2026-11-06',
     changes: [

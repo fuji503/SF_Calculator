@@ -64,7 +64,8 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
     try {
       const url = await toPng(ref.current, {
         pixelRatio: 2,
-        backgroundColor: '#0f172a',
+        // カードの地の色（ライト／ダークで変わる）
+        backgroundColor: getComputedStyle(ref.current).backgroundColor,
         filter: (n) => !(n instanceof HTMLElement && n.dataset.exportExclude !== undefined),
       })
       downloadUrl(`${def.id}_${safeFileName(card.title)}_${timestamp()}.png`, url)
@@ -92,13 +93,13 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
           value={card.title}
           aria-label={t.card.title}
           onChange={(e) => onChange((c) => ({ ...c, title: e.target.value }))}
-          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-semibold text-white hover:border-slate-700 focus:border-sky-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-semibold text-slate-50 hover:border-slate-700 focus:border-sky-500 focus:outline-none"
         />
         <div className="flex items-center gap-1" data-export-exclude>
           <button
             type="button"
             onClick={onDuplicate}
-            className="rounded-md border border-slate-700 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+            className="rounded-md border border-slate-700 px-2 py-1 text-sm text-slate-300 hover:bg-slate-800 hover:text-slate-50"
           >
             {t.card.duplicate}
           </button>

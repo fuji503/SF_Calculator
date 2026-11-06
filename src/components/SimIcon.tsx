@@ -25,25 +25,27 @@ export function SimIcon({ kind, className = 'size-6' }: Props) {
 }
 
 const ICON_PATHS: Record<SimIconKind, ReactNode> = {
-  // 太陽と、光を反射する鏡
+  // お椀形の鏡：上から入る平行な光が、鏡で反射して上の1点（集光部）に集まる
   mirror: (
     <>
-      <circle cx="5.5" cy="5.5" r="2.5" />
-      <path d="M8.5 8.5 14 14M14 14l6-3M12 20l8-6" />
+      <ellipse cx="12" cy="16.5" rx="9.5" ry="2.6" />
+      <path d="M2.5 16.5Q12 24 21.5 16.5M5 2.5v14.7M19 2.5v14.7M8 17.3 10.8 8.4M16 17.3 13.2 8.4" />
+      <circle cx="12" cy="6" r="2" />
+      <path d="M12 1.5v1M8.6 3.2l.8.7M15.4 3.2l-.8.7" />
     </>
   ),
-  // 発振器と、まっすぐ進むビーム
+  // 懐中電灯と、まっすぐ進む細いビーム
   laser: (
     <>
-      <rect x="2.5" y="9" width="7" height="6" rx="1" />
-      <path d="M9.5 12h12M17 9l3 3-3 3" />
+      <rect x="2" y="9.5" width="8" height="5" rx="1" />
+      <path d="M10 9.5 13 7.5v9L10 14.5M5 9.5V8.5h2v1M15.5 12h6.5" />
     </>
   ),
-  // 天体と、その手前の日よけ
+  // パラソル（日よけ）
   shade: (
     <>
-      <circle cx="17" cy="12" r="4.5" />
-      <path d="M8 5v14M2.5 8l3 0M2.5 12h3M2.5 16h3" />
+      <path d="M2.5 10Q12 0.5 21.5 10Z" />
+      <path d="M12 5.3 8.5 10M12 5.3 15.5 10M12 10v10.5M8.5 20.5h7" />
     </>
   ),
   // 稲妻と、ラジエータのフィン
@@ -53,12 +55,16 @@ const ICON_PATHS: Record<SimIconKind, ReactNode> = {
       <path d="M18 6v12M21 6v12" />
     </>
   ),
-  // 炉心と、それを囲む遮蔽
+  // 格納容器の建物と、中の原子力のマーク
   reactor: (
     <>
-      <circle cx="12" cy="12" r="2.5" />
-      <circle cx="12" cy="12" r="6" />
-      <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2" />
+      <path d="M4 21V12a8 8 0 0 1 16 0v9M2 21h20" />
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M11.15 13.13L9.85 10.88A4.3 4.3 0 0 1 14.15 10.88L12.85 13.13A1.7 1.7 0 0 0 11.15 13.13ZM13.7 14.6L16.3 14.6A4.3 4.3 0 0 1 14.15 18.32L12.85 16.07A1.7 1.7 0 0 0 13.7 14.6ZM11.15 16.07L9.85 18.32A4.3 4.3 0 0 1 7.7 14.6L10.3 14.6A1.7 1.7 0 0 0 11.15 16.07Z"
+      />
+      <circle cx="12" cy="14.6" r="0.9" fill="currentColor" stroke="none" />
     </>
   ),
 }

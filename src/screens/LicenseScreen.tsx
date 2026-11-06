@@ -18,7 +18,7 @@ const LIBRARIES: readonly { name: string; url: string; license: string }[] = [
 export function LicenseScreen() {
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-white md:text-2xl">ライセンス</h1>
+      <h1 className="text-xl font-bold text-slate-50 md:text-2xl">ライセンス</h1>
 
       <Section title="MIT License">
         <p>

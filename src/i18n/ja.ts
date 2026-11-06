@@ -11,6 +11,10 @@ export const ja = {
     howTo: '使い方',
     changelog: '更新履歴',
     license: 'ライセンス',
+    theme: '画面の色',
+    themeSystem: '自動',
+    themeLight: 'ライト',
+    themeDark: 'ダーク',
   },
   top: {
     lead: 'SF作品に登場するような宇宙インフラ（太陽光の集光・送光、レーザ送電、スペースサンシェード、電源・排熱、原子炉など）を、物理モデルに基づいて計算するシミュレータです。',

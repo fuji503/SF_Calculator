@@ -1,4 +1,5 @@
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { THEME_COLORS, useTheme } from '../../app/theme.ts'
 import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
@@ -29,6 +30,7 @@ interface Props {
 
 /** グラフ欄（WebApp仕様書 §4.7）。X軸の入力だけを動かした計算の結果を描く */
 export function GraphPanel({ def, card, result, sweep, pending, onGraph }: Props) {
+  const c = THEME_COLORS[useTheme().resolved]
   const g = card.graph
   const xs = xCandidates(def, card.inputs)
   const ys = yCandidates(def, card.inputs)
@@ -142,7 +144,7 @@ export function GraphPanel({ def, card, result, sweep, pending, onGraph }: Props
         ) : data.length > 0 && data.some((d) => d.y !== null) ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 8, right: 16, bottom: 20, left: 8 }}>
-              <CartesianGrid stroke="#1e293b" />
+              <CartesianGrid stroke={c.grid} />
               <XAxis
                 dataKey="x"
                 type="number"
@@ -151,9 +153,9 @@ export function GraphPanel({ def, card, result, sweep, pending, onGraph }: Props
                 allowDataOverflow
                 ticks={g.xScale === 'log' && xDomain ? logTicks(xDomain) : undefined}
                 tickFormatter={tick}
-                stroke="#64748b"
+                stroke={c.axis}
                 fontSize={11}
-                label={{ value: axisLabel(xParam?.label, xUnit?.label), position: 'insideBottom', offset: -12, fill: '#94a3b8', fontSize: 11 }}
+                label={{ value: axisLabel(xParam?.label, xUnit?.label), position: 'insideBottom', offset: -12, fill: c.label, fontSize: 11 }}
               />
               <YAxis
                 type="number"
@@ -162,18 +164,18 @@ export function GraphPanel({ def, card, result, sweep, pending, onGraph }: Props
                 allowDataOverflow
                 ticks={g.yScale === 'log' && yDomain ? logTicks(yDomain) : undefined}
                 tickFormatter={tick}
-                stroke="#64748b"
+                stroke={c.axis}
                 fontSize={11}
                 width={64}
               />
               <Tooltip
                 isAnimationActive={false}
-                contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: 12 }}
+                contentStyle={{ background: c.tooltipBg, border: `1px solid ${c.tooltipBorder}`, fontSize: 12 }}
                 labelFormatter={(x) => `${xParam?.label} = ${formatNumber(Number(x))} ${xUnit?.label ?? ''}`}
                 formatter={(y) => [`${formatNumber(Number(y))} ${yUnit?.label ?? ''}`, yDef?.label ?? yKey]}
               />
-              <Line dataKey="y" stroke="#38bdf8" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls={false} />
-              {cur && <ReferenceDot x={cur.x} y={cur.y} r={5} fill="#fbbf24" stroke="#0f172a" strokeWidth={2} />}
+              <Line dataKey="y" stroke={c.line} strokeWidth={2} dot={false} isAnimationActive={false} connectNulls={false} />
+              {cur && <ReferenceDot x={cur.x} y={cur.y} r={5} fill={c.dot} stroke={c.tooltipBg} strokeWidth={2} />}
             </LineChart>
           </ResponsiveContainer>
         ) : (

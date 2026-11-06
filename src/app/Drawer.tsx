@@ -3,6 +3,7 @@ import { SimIcon } from '../components/SimIcon.tsx'
 import { t } from '../i18n/ja.ts'
 import { simModules } from '../sims/registry.ts'
 import { routeHref, sameRoute, type Route } from './route.ts'
+import { setThemeSetting, useTheme, type ThemeSetting } from './theme.ts'
 
 interface Props {
   open: boolean
@@ -36,11 +37,11 @@ export function Drawer({ open, current, onClose }: Props) {
         inert={!open}
       >
         <div className="flex h-12 items-center justify-between border-b border-slate-800 px-4 md:h-14">
-          <span className="font-semibold text-white">{t.app.name}</span>
+          <span className="font-semibold text-slate-50">{t.app.name}</span>
           <button
             ref={closeRef}
             type="button"
-            className="flex size-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
+            className="flex size-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-50"
             aria-label={t.menu.close}
             onClick={onClose}
           >
@@ -69,6 +70,7 @@ export function Drawer({ open, current, onClose }: Props) {
             {t.menu.license}
           </MenuItem>
         </ul>
+        <ThemeSwitch />
       </nav>
     </div>
   )
@@ -91,7 +93,7 @@ function MenuItem({ route, current, onSelect, indent = false, children }: MenuIt
         className={`flex items-center gap-2 py-2 pr-4 ${indent ? 'pl-6' : 'pl-4'} ${
           active
             ? 'border-l-2 border-sky-400 bg-sky-400/10 font-medium text-sky-200'
-            : 'border-l-2 border-transparent text-slate-300 hover:bg-slate-800 hover:text-white'
+            : 'border-l-2 border-transparent text-slate-300 hover:bg-slate-800 hover:text-slate-50'
         }`}
         aria-current={active ? 'page' : undefined}
         onClick={onSelect}
@@ -99,5 +101,37 @@ function MenuItem({ route, current, onSelect, indent = false, children }: MenuIt
         {children}
       </a>
     </li>
+  )
+}
+
+const THEME_OPTIONS: { value: ThemeSetting; label: string }[] = [
+  { value: 'system', label: t.menu.themeSystem },
+  { value: 'light', label: t.menu.themeLight },
+  { value: 'dark', label: t.menu.themeDark },
+]
+
+/** 画面の色の切り替え（自動は端末の設定に合わせる） */
+function ThemeSwitch() {
+  const { setting } = useTheme()
+  return (
+    <div className="border-t border-slate-800 px-4 py-3">
+      <p id="theme-label" className="mb-2 text-xs font-medium text-slate-500">
+        {t.menu.theme}
+      </p>
+      <div role="radiogroup" aria-labelledby="theme-label" className="flex overflow-hidden rounded-md border border-slate-700 text-xs">
+        {THEME_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={setting === o.value}
+            onClick={() => setThemeSetting(o.value)}
+            className={`flex-1 px-2 py-1.5 ${setting === o.value ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

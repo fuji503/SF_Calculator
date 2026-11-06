@@ -19,7 +19,7 @@ export function GroupSection({ title, open, onToggle, nested = false, children }
         aria-expanded={open}
         aria-controls={panelId}
         onClick={onToggle}
-        className={`flex w-full items-center gap-2 text-left font-medium hover:text-white ${
+        className={`flex w-full items-center gap-2 text-left font-medium hover:text-slate-50 ${
           nested ? 'py-1 text-xs text-slate-400' : 'rounded-lg px-3 py-2 text-sm text-slate-200 hover:bg-slate-800/50'
         }`}
       >

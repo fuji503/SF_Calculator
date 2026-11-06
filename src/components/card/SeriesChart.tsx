@@ -1,4 +1,5 @@
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { THEME_COLORS, useTheme } from '../../app/theme.ts'
 import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fixedUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
@@ -15,6 +16,7 @@ interface Props {
 
 /** 出力欄の中の小さな時系列のグラフ（例：減光率の時間変化） */
 export function SeriesChart({ o, card, value, onUnit }: Props) {
+  const c = THEME_COLORS[useTheme().resolved]
   const xDef = o.seriesX?.unit ?? fixedUnit('')
   const xUnit = findUnit(xDef, undefined)
   const yDef = o.unit ?? fixedUnit('')
@@ -43,7 +45,7 @@ export function SeriesChart({ o, card, value, onUnit }: Props) {
       <div className="h-44 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 4, right: 12, bottom: 16, left: 0 }}>
-            <CartesianGrid stroke="#1e293b" />
+            <CartesianGrid stroke={c.grid} />
             <XAxis
               dataKey="x"
               type="number"
@@ -52,17 +54,17 @@ export function SeriesChart({ o, card, value, onUnit }: Props) {
               ticks={xTicks}
               allowDataOverflow
               tickFormatter={tick}
-              stroke="#64748b"
+              stroke={c.axis}
               fontSize={10}
-              label={{ value: `${o.seriesX?.label ?? ''} [${xUnit.label}]`, position: 'insideBottom', offset: -10, fill: '#94a3b8', fontSize: 10 }}
+              label={{ value: `${o.seriesX?.label ?? ''} [${xUnit.label}]`, position: 'insideBottom', offset: -10, fill: c.label, fontSize: 10 }}
             />
-            <YAxis type="number" scale={yLog ? 'log' : 'linear'} allowDataOverflow domain={yDomain} ticks={yTicks} tickFormatter={tick} stroke="#64748b" fontSize={10} width={48} />
+            <YAxis type="number" scale={yLog ? 'log' : 'linear'} allowDataOverflow domain={yDomain} ticks={yTicks} tickFormatter={tick} stroke={c.axis} fontSize={10} width={48} />
             <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: 12 }}
+              contentStyle={{ background: c.tooltipBg, border: `1px solid ${c.tooltipBorder}`, fontSize: 12 }}
               labelFormatter={(x) => `${formatNumber(Number(x))} ${xUnit.label}`}
               formatter={(y) => [`${formatNumber(Number(y))} ${yUnit.label}`, o.label]}
             />
-            <Line type="linear" dataKey="y" stroke="#38bdf8" dot={false} strokeWidth={2} isAnimationActive={false} />
+            <Line type="linear" dataKey="y" stroke={c.line} dot={false} strokeWidth={2} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>

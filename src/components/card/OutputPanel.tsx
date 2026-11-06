@@ -139,7 +139,7 @@ function OutputRow({
 }
 
 function OutputValueText({ o, card, value, large }: { o: OutputDef; card: Card; value: ComputeResult['outputs'][string] | undefined; large: boolean }) {
-  const cls = `font-mono ${large ? 'text-lg font-semibold text-white' : 'text-sm text-slate-200'}`
+  const cls = `font-mono ${large ? 'text-lg font-semibold text-slate-50' : 'text-sm text-slate-200'}`
   if (!value) return <span className={cls}>—</span>
   switch (value.kind) {
     case 'number': {

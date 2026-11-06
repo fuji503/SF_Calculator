@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 export function HowToScreen() {
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-white md:text-2xl">使い方</h1>
+      <h1 className="text-xl font-bold text-slate-50 md:text-2xl">使い方</h1>
 
       <Section title="基本の流れ">
         <ol className="list-decimal space-y-1 pl-6">
@@ -12,6 +12,7 @@ export function HowToScreen() {
           <li>計算結果カードの入力欄に値を入れます。値を変えると、すぐに計算し直します。</li>
           <li>条件を変えて比べたいときは、カードを複製するか、「＋ 新しい計算を追加」で新しいカードを作ります。</li>
         </ol>
+        <p className="mt-2">画面の色は、メニューのいちばん下の「画面の色」で、自動（端末の設定に合わせる）・ライト・ダークから選べます。</p>
       </Section>
 
       <Section title="カードの操作">

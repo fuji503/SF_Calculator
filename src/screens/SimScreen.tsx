@@ -19,7 +19,7 @@ export function SimScreen({ sim }: Props) {
   const Explanation = simExplanations[sim.id]
   return (
     <div className="space-y-4">
-      <h1 className="flex items-center gap-2 text-xl font-bold text-white md:text-2xl">
+      <h1 className="flex items-center gap-2 text-xl font-bold text-slate-50 md:text-2xl">
         <SimIcon kind={sim.icon} className="size-7 shrink-0 text-sky-300" />
         {sim.name}
       </h1>

@@ -37,7 +37,7 @@ export function CardMenu({ actions }: { actions: MenuAction[] }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex size-8 items-center justify-center rounded-md text-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+        className="flex size-8 items-center justify-center rounded-md text-lg text-slate-400 hover:bg-slate-800 hover:text-slate-50"
       >
         ⋯
       </button>

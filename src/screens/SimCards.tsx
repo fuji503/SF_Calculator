@@ -51,7 +51,7 @@ function Cards({ def }: { def: SimDefinition }) {
     downloadText(`${def.id}_all_${timestamp()}.json`, JSON.stringify(toExportFile(def, cards), null, 2))
   }
 
-  const btn = 'rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-white'
+  const btn = 'rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-slate-50'
 
   return (
     <>
@@ -84,7 +84,7 @@ function Cards({ def }: { def: SimDefinition }) {
           }`}
         >
           {notice.text}
-          <button type="button" aria-label={t.sim.dismiss} onClick={() => setNotice(null)} className="text-slate-400 hover:text-white">
+          <button type="button" aria-label={t.sim.dismiss} onClick={() => setNotice(null)} className="text-slate-400 hover:text-slate-50">
             ✕
           </button>
         </div>
