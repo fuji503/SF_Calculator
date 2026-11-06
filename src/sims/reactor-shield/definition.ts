@@ -13,13 +13,14 @@ import type {
   TableRow,
 } from '../types.ts'
 import {
-  ALPHA_C_FAST,
+  alphaFor,
   CLASSES,
   COMPONENTS,
   CONDUCTORS,
   COOLANTS,
   CRITERIA,
   FUELS,
+  GROUNDS,
   MATERIALS,
   type ComponentId,
   type CoolantId,
@@ -28,7 +29,7 @@ import {
   type MaterialId,
   type ReactorClass,
 } from './data.ts'
-import { computeReactor, type Layer, type Layout, type Origin, type ReactorInputs, type ShieldMode } from './model.ts'
+import { computeReactor, type Layer, type Layout, type Origin, type ReactorInputs, type ShieldMode, type SurfaceMaterialId } from './model.ts'
 
 const KW = 1e3
 const CM = 0.01
@@ -73,7 +74,22 @@ const fraction = (key: string, label: string, def: number, extra: Partial<Number
   ...extra,
 })
 
+/** 材料の成分の説明（材料の調達） */
+const ORIGIN_DESCRIPTIONS: Record<ComponentId, string> = {
+  regolith:
+    'レゴリスを使う材料の成分ごとに、地球から運ぶか現地で調達するかを選ぶ（ほかの材料はすべて地球から運ぶ）。レゴリスは、3種類のコンクリートでは骨材（砂や砂利の代わり）として使う。レゴリスだけの材料では、締め固めた盛り土として積む（焼き固めたレンガにすると強くなるが、計算は締め固めた密度 1800 kg/m³ で行う）',
+  cement:
+    '水とセメントのコンクリートの結合材（普通のコンクリートと同じポルトランドセメント）。水と反応して固まり、骨材（レゴリス）をつなぐ接着剤の役割をする。固まるには水が必要（この材料では全体の質量の 7%）。型から外せるまで約1日、設計の強さになるまで約4週間。真空では水が蒸発するので、与圧した空間で固める',
+  water: '水とセメントのコンクリートを固めるための水。月の極域の氷などから得られれば、現地で調達できる',
+  sulfur:
+    'サルファコンクリートの結合材。硫黄を約130〜140 °C で溶かしてレゴリスと混ぜると、冷えて短時間（数時間〜1日）で固まる。水がいらない。月のレゴリスから硫黄を取り出す構想がある。硫黄が溶ける約115〜120 °C より低い温度で使う（月の昼の地表は約120 °C になるので、日よけなどが要る）。真空ではゆっくり昇華して減る（参考値）',
+  resin:
+    'ポリマーコンクリートの結合材（エポキシ樹脂など）。液体の樹脂と硬化剤をレゴリスと混ぜると、化学反応で固まる（常温で数時間〜数日）。水がいらない。樹脂は地球から運ぶ。耐熱は樹脂の種類によるが、およそ 60〜150 °C で柔らかくなる（参考値）',
+}
+
 const materialOptions = (Object.keys(MATERIALS) as MaterialId[]).map((value) => ({ value, label: MATERIALS[value].label }))
+/** 地表の配置の壁とふた：地盤と同じ土（掘り出した土）を選べる */
+const surfaceMaterialOptions = [{ value: 'ground', label: '地盤と同じ土（地盤の種類の値）' }, ...materialOptions]
 
 // ---------------------------------------------------------------------------
 // プリセット
@@ -91,7 +107,7 @@ function classPreset(cls: string): Inputs {
     rho_HM: c.rho_HM,
     fuel: c.fuel,
     nu: fuel.nu,
-    alpha_c: c.spectrum === 'fast' ? ALPHA_C_FAST : fuel.alpha_c,
+    alpha_c: alphaFor(fuel, c.spectrum),
     e: c.e,
     Bu_max: c.Bu_max,
     f_n: c.f_n,
@@ -135,7 +151,8 @@ const layersTable: TableParam = {
   key: 'layers',
   group: 'layers',
   label: '遮蔽の層（炉心に近い側から）',
-  description: '「基準から厚さを出す」では、最後の層（または最後の2層）の厚さを計算で決める（「自動」の欄）。それより内側の層は入力した厚さで固定する',
+  description:
+    '「基準から厚さを出す」では、「自動で厚さが決まる層」で選んだ最後の1層か2層の厚さを、シミュレータが自動で計算する（「自動」の欄）。それより内側の層は、入力した厚さのまま固定する（原子炉の容器、プールの水など）',
   columns: [
     { key: 'material', label: '材料', kind: 'enum', options: materialOptions },
     {
@@ -159,7 +176,7 @@ const hxTable: TableParam = {
   key: 'hx_layers',
   group: 'hx',
   label: '熱交換器の遮蔽の層',
-  description: '「基準から厚さを出す」では、最後の層の厚さを計算で決める',
+  description: '「基準から厚さを出す」では、最後の層の厚さを、線量の基準を満たすようにシミュレータが自動で計算する。内側の層だけで基準を満たすときは 0 cm になる',
   columns: [
     { key: 'material', label: '材料', kind: 'enum', options: materialOptions },
     { key: 't', label: '厚さ', kind: 'number', unit: unitDefs.thickness, min: 0, autoKey: (r, n, i) => (solving(i) && r === n - 1 ? `hx_t_${r}` : null) },
@@ -225,7 +242,10 @@ const baseInputs: ParamDef[] = [
       { value: 'thermal', label: '熱中性子炉' },
     ],
     default: K.spectrum,
-    presets: (v, i): Inputs => ({ alpha_c: v === 'fast' ? ALPHA_C_FAST : FUELS[i.fuel as FuelId]?.alpha_c ?? ALPHA_C_FAST }),
+    presets: (v, i): Inputs => {
+      const f = FUELS[i.fuel as FuelId]
+      return f ? { alpha_c: alphaFor(f, v === 'fast' ? 'fast' : 'thermal') } : {}
+    },
   },
   {
     kind: 'number',
@@ -277,15 +297,21 @@ const baseInputs: ParamDef[] = [
     key: 'fuel',
     group: 'core',
     label: '核分裂する物質',
-    description: '選ぶと、核分裂1回あたりの中性子の数と、捕獲と核分裂の比が入る（検証済み）',
+    description:
+      '選ぶと、核分裂1回あたりの中性子の数と、捕獲と核分裂の比が入る。ウラン235：天然のウランに 0.72% 含まれる（残りはほぼウラン238）。ウラン233：天然にはなく、トリウム232 が炉の中で中性子を吸収してできる（トリウムサイクル）。プルトニウム239：天然にはほぼなく、ウラン238 が炉の中で中性子を吸収してできる（使用済み燃料から取り出す）',
     options: (Object.keys(FUELS) as FuelId[]).map((value) => ({ value, label: FUELS[value].label })),
     default: K.fuel,
     presets: (v, i): Inputs => {
       const f = FUELS[v as FuelId]
-      return f ? { nu: f.nu, alpha_c: i.spectrum === 'fast' ? ALPHA_C_FAST : f.alpha_c } : {}
+      return f ? { nu: f.nu, alpha_c: alphaFor(f, i.spectrum === 'fast' ? 'fast' : 'thermal') } : {}
     },
   },
-  fraction('e', '濃縮度（重金属のうち、核分裂する物質の割合）', K.e, { group: 'core', symbol: 'e' }),
+  fraction('e', '濃縮度・富化度（重金属のうち、核分裂する物質の割合）', K.e, {
+    group: 'core',
+    symbol: 'e',
+    description:
+      '高いほど小さな炉心で臨界にできる。ウランでは濃縮度（ウラン235 の割合）と呼ぶ。目安：天然ウラン 0.72%、軽水炉 3〜5%、新型の小型炉（HALEU）5〜20%、艦船用・宇宙用の炉 90% 以上（Kilopower 93%）。プルトニウムを使う燃料（ウランとの混合酸化物＝MOX）では富化度（プルトニウムの割合）と呼び、軽水炉で約 5〜10%、高速炉で約 15〜30%（参考値）',
+  }),
   {
     kind: 'number',
     key: 'nu',
@@ -303,9 +329,10 @@ const baseInputs: ParamDef[] = [
     group: 'core',
     label: '捕獲と核分裂の比',
     symbol: '\\alpha_c',
-    description: '核分裂せずに中性子を吸収してしまう割合。大きいほど燃料の消費が増える。高速炉では小さい（約0.10）',
+    description:
+      '核分裂せずに中性子を吸収してしまう割合（捕獲の回数 ÷ 核分裂の回数）。大きいほど燃料の消費が増える。選択肢で入る値：熱中性子炉は熱中性子（0.025 eV）の値（ウラン235 0.169、ウラン233 0.085、プルトニウム239 0.362、検証済み）、高速炉は高速炉の中性子のエネルギーでの平均（ウラン235 0.29、ウラン233 0.10、プルトニウム239 0.25、参考値）。軽水炉の中性子のエネルギーで平均すると、ウラン235 約0.18、プルトニウム239 約0.41（参考値）',
     unit: unitDefs.none,
-    default: ALPHA_C_FAST,
+    default: FUELS.u235.alpha_c_fast,
     min: 0,
   },
   {
@@ -358,7 +385,8 @@ const baseInputs: ParamDef[] = [
     key: 'coolant',
     group: 'coolant',
     label: '冷却材',
-    description: '選ぶと放射化の割合が入る。融点・沸点・出口温度の目安で、高温側の温度を確かめる',
+    description:
+      '炉心から熱を取り出して運ぶ物質。タービンなどを回す物質（作動流体）と同じとは限らない。沸騰水型炉では水がそのままタービンを回すが、加圧水型炉やナトリウム冷却炉、Kilopower（ナトリウムのヒートパイプ）では、熱交換器で別の流体（水蒸気、ヘリウムなどのガス）に熱を渡す。選ぶと放射化の割合が入る。融点・沸点・出口温度の目安で、高温側の温度を確かめる',
     options: (Object.keys(COOLANTS) as CoolantId[]).map((value) => ({ value, label: COOLANTS[value].label })),
     default: K.coolant,
     presets: (v): Inputs => ({ f_act: COOLANTS[v as CoolantId]?.f_act ?? 0 }),
@@ -573,7 +601,7 @@ const baseInputs: ParamDef[] = [
     key: 'layer_preset',
     group: 'layers',
     label: '層の例',
-    description: '選ぶと層と、基準から決める層の数が入る',
+    description: '選ぶと層と、自動で厚さが決まる層の数が入る',
     options: [...Object.entries(LAYER_PRESETS).map(([value, v]) => ({ value, label: v.label })), { value: CUSTOM, label: 'カスタム' }],
     default: 'space',
     presets: (v): Inputs => {
@@ -587,11 +615,12 @@ const baseInputs: ParamDef[] = [
     kind: 'enum',
     key: 'solve_count',
     group: 'layers',
-    label: '基準から決める層',
-    description: '2層：ガンマ線用（重い金属）と中性子用（水素を含む材料）の厚さを、質量が最小になるように決める。1層：最後の層の厚さだけを決める',
+    label: '自動で厚さが決まる層',
+    description:
+      '線量の基準を満たす厚さを、シミュレータが自動で計算する層。それより内側の層は入力した厚さのまま。最後の2層：2層の厚さの組を、遮蔽の質量が最小になるように決める（典型的には、ガンマ線用の重い金属＋中性子用の水素を含む材料。ただし材料が何でも計算できる）。最後の1層だけ：最後の層の厚さだけを決める。内側の層だけで基準を満たすときは、自動の層は 0 cm になる',
     options: [
-      { value: '2', label: '最後の2層（ガンマ線用＋中性子用）' },
-      { value: '1', label: '最後の1層' },
+      { value: '2', label: '最後の2層が自動で決まる', disabledWhen: (i) => rowsOf(i, 'layers').length < 2 },
+      { value: '1', label: '最後の1層だけ自動で決まる' },
     ],
     default: '2',
     visibleWhen: solving,
@@ -602,7 +631,8 @@ const baseInputs: ParamDef[] = [
     key: 'layout',
     group: 'surface',
     label: '配置',
-    description: '地上：周りを壁や盛り土で囲む。地下：縦穴に入れて埋め戻す（横と下は地盤が守る）。半地下：下半分を地面に入れ、上半分を壁で囲む',
+    description:
+      '地上：周りを壁や盛り土で囲む。地下：縦穴に入れて埋め戻す（横と下は地盤が守る）。半地下：下半分を地面に入れ、上半分を壁で囲む。天体を問わず使える（重力や大気は計算に使わない）。地球・火星・タイタンなど大気のある天体では、空気で散乱して回り込む放射線（スカイシャイン）を計算しないので、線量を低く見積もる。壁は1つの材料だけ（多層の壁は、計算が複雑になるので省いた）',
     options: [
       { value: 'above', label: '地上' },
       { value: 'under', label: '地下' },
@@ -634,6 +664,44 @@ const baseInputs: ParamDef[] = [
     visibleWhen: isUnder,
     role: (i) => (solving(i) ? 'output' : 'input'),
   },
+  {
+    kind: 'enum',
+    key: 'ground_type',
+    group: 'surface',
+    label: '地盤の種類',
+    description: '選ぶと、地盤の密度と含水率に目安の値が入る。地盤に含まれる水（水素）で、中性子の遮蔽が大きく変わる',
+    options: [...(Object.keys(GROUNDS) as (keyof typeof GROUNDS)[]).map((value) => ({ value, label: GROUNDS[value].label })), { value: CUSTOM, label: 'カスタム' }],
+    default: 'moon',
+    presets: (v): Inputs => {
+      const g = GROUNDS[v as keyof typeof GROUNDS]
+      return g ? { ground_rho: g.rho, ground_w: g.w } : {}
+    },
+    customValue: CUSTOM,
+    customKeys: ['ground_rho', 'ground_w'],
+    visibleWhen: isSurface,
+  },
+  {
+    kind: 'number',
+    key: 'ground_rho',
+    group: 'surface',
+    label: '地盤の密度（水を含む）',
+    symbol: '\\rho_g',
+    description: '大きいほど、同じ厚さでガンマ線と中性子をよく止める。目安：月のレゴリス（締め固め）1800 kg/m³、地球の土 1600〜2000 kg/m³',
+    unit: unitDefs.massDensity,
+    default: GROUNDS.moon.rho,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: isSurface,
+  },
+  fraction('ground_w', '地盤の含水率（全体の質量に対する水の割合）', GROUNDS.moon.w, {
+    group: 'surface',
+    symbol: 'w_g',
+    description:
+      '大きいほど水素が多く、中性子をよく止める。ガンマ線にはほとんど影響しない。目安：月の大部分 0（極域の永久影には氷がある）、火星の赤道付近 約2%、地球の土 10〜30%。1% 未満では、除去断面積による計算の精度が下がる',
+    max: 0.5,
+    rangeMessage: '0〜50% で入力してください',
+    visibleWhen: isSurface,
+  }),
   { kind: 'number', key: 'r_w', group: 'surface', label: '壁の内側の半径（炉心の中心軸から）', symbol: 'r_w', unit: meters, default: 1, min: 0, visibleWhen: isWalled },
   {
     kind: 'number',
@@ -652,8 +720,9 @@ const baseInputs: ParamDef[] = [
     key: 'wall_mat',
     group: 'surface',
     label: '壁の材料',
-    options: materialOptions,
-    default: 'regolith',
+    description: '「地盤と同じ土」は、掘り出した土を盛る場合（密度と含水率は地盤の種類の値）',
+    options: surfaceMaterialOptions,
+    default: 'ground',
     visibleWhen: isWalled,
   },
   {
@@ -673,8 +742,9 @@ const baseInputs: ParamDef[] = [
     key: 'lid_mat',
     group: 'surface',
     label: 'ふた（地下では埋め戻し）の材料',
-    options: materialOptions,
-    default: 'regolith',
+    description: '地下では、掘り出した土で埋め戻すなら「地盤と同じ土」',
+    options: surfaceMaterialOptions,
+    default: 'ground',
     visibleWhen: isSurface,
   },
   {
@@ -731,7 +801,7 @@ const baseInputs: ParamDef[] = [
       key: `origin_${c}`,
       group: 'origin',
       label: COMPONENTS[c].label,
-      description: c === 'regolith' ? 'レゴリスを使う材料の成分ごとに、地球から運ぶか現地で調達するかを選ぶ。ほかの材料はすべて地球から運ぶ' : undefined,
+      description: ORIGIN_DESCRIPTIONS[c],
       options: [
         { value: 'local', label: '現地で調達' },
         { value: 'earth', label: '地球から運ぶ' },
@@ -811,7 +881,9 @@ const baseInputs: ParamDef[] = [
     kind: 'enum',
     key: 'conductor',
     group: 'boom',
-    label: '導体',
+    label: '電線の芯の材質（導体）',
+    description:
+      '電気を通す金属の芯の材質。アルミニウムは銅より電気を通しにくいが軽いので、同じ損失なら銅の約半分の質量になる。実際の電線は芯の外側を絶縁の被覆で覆うが、計算の質量は芯の金属だけ（被覆は含まない）',
     options: (Object.keys(CONDUCTORS) as ('aluminum' | 'copper')[]).map((value) => ({ value, label: CONDUCTORS[value].label })),
     default: 'aluminum',
     visibleWhen: withBoom,
@@ -1052,7 +1124,8 @@ export const reactorShield: SimDefinition = {
     pbbi: 'ポロニウム210（アルファ線を出す毒性の強い物質）ができます。漏れたときの取り扱いに注意が必要です',
     lithium: 'トリチウムができます',
     lih: '水素化リチウムは約680 K 以下に保つ必要があります（熱の計算は含まれていません）',
-    'reg-concrete-vacuum': '真空中では水が蒸発するので、水とセメントのコンクリートは密閉して固める必要があります',
+    'reg-concrete-vacuum': '真空中では水が蒸発してしまうので、水とセメントのコンクリートは、与圧した空間（気密の建屋など）で少なくとも数日間かけて固める（養生する）必要があります（設計の強さになるまでは約4週間）',
+    'dry-ground': '地盤が乾いていて水素をほとんど含まないので、除去断面積による中性子の計算の精度が下がります',
     'shield-only': '遮蔽材だけの質量です。容器、構造、冷却の分は含まれません',
     'hx-no-source': 'この冷却材は、ガンマ線を出す物質がほとんどできません',
   },
@@ -1184,10 +1257,12 @@ export function toReactorInputs(i: Inputs): ReactorInputs {
     r_w: num('r_w'),
     H_w: num('H_w'),
     t_w: num('t_w'),
-    wall_mat: String(i.wall_mat) as MaterialId,
+    wall_mat: String(i.wall_mat) as SurfaceMaterialId,
     t_top: num('t_top'),
-    lid_mat: String(i.lid_mat) as MaterialId,
+    lid_mat: String(i.lid_mat) as SurfaceMaterialId,
     cav_gap: num('cav_gap'),
+    ground_rho: num('ground_rho'),
+    ground_w: num('ground_w'),
     basis: i.basis === 'direct' ? 'direct' : 'conservative',
     L_up: num('L_up'),
     origin,

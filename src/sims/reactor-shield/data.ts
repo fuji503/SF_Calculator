@@ -36,16 +36,18 @@ export interface FuelData {
   nu: number
   /** 捕獲と核分裂の比（熱中性子） */
   alpha_c: number
+  /** 捕獲と核分裂の比（高速炉の中性子のエネルギーで平均、参考値） */
+  alpha_c_fast: number
 }
 
 export const FUELS: Record<FuelId, FuelData> = {
-  u235: { label: 'ウラン235', A: 235.04, nu: 2.43, alpha_c: 0.169 },
-  u233: { label: 'ウラン233（トリウムサイクル）', A: 233.04, nu: 2.49, alpha_c: 0.085 },
-  pu239: { label: 'プルトニウム239', A: 239.05, nu: 2.88, alpha_c: 0.362 },
+  u235: { label: 'ウラン235', A: 235.04, nu: 2.43, alpha_c: 0.169, alpha_c_fast: 0.292 },
+  u233: { label: 'ウラン233（トリウムサイクル）', A: 233.04, nu: 2.49, alpha_c: 0.085, alpha_c_fast: 0.1 },
+  pu239: { label: 'プルトニウム239', A: 239.05, nu: 2.88, alpha_c: 0.362, alpha_c_fast: 0.248 },
 }
 
-/** 高速炉での捕獲と核分裂の比（参考値） */
-export const ALPHA_C_FAST = 0.1
+/** 中性子のエネルギーに合わせた捕獲と核分裂の比 */
+export const alphaFor = (fuel: FuelData, spectrum: 'fast' | 'thermal') => (spectrum === 'fast' ? fuel.alpha_c_fast : fuel.alpha_c)
 
 // ---------------------------------------------------------------------------
 // §3.3 冷却材
@@ -355,6 +357,35 @@ export const MATERIALS: Record<MaterialId, Material> = {
   reg_concrete: material('レゴリスのコンクリート（水とセメント）', 2400, 0.0892, 0.0446, true, 10, { regolith: 0.78, cement: 0.15, water: 0.07 }),
   sulfur_concrete: material('サルファコンクリート（硫黄とレゴリス）', 2300, 0.0712, 0.0446, false, 10, { regolith: 0.65, sulfur: 0.35 }),
   polymer_concrete: material('ポリマーコンクリート（樹脂とレゴリス）', 2100, 0.0867, 0.0446, true, 10, { regolith: 0.85, resin: 0.15 }),
+}
+
+/** 地盤の種類（地表の配置）。密度は水を含めた値、含水率は全体の質量に対する水の割合 */
+export const GROUNDS: Record<'moon' | 'mars' | 'earth', { label: string; rho: number; w: number }> = {
+  moon: { label: '月のレゴリス（乾燥、締め固め）', rho: 1800, w: 0 },
+  mars: { label: '火星のレゴリス（水 2%）※参考値', rho: 1600, w: 0.02 },
+  earth: { label: '地球の湿った土（水 15%）※参考値', rho: 1900, w: 0.15 },
+}
+
+/** 水素を含むとみなす含水率（これより乾いた地盤では精度の警告を出す） */
+export const GROUND_W_HYDROGEN = 0.01
+
+/**
+ * 地盤の材料：乾いたレゴリスと水の混合（§4.7 の混合の式）。
+ * 乾いた部分は月のレゴリスの表の値を質量あたりにして使うので、含水率 0・密度 1800 kg/m³ で表の値と一致する
+ */
+export function groundMaterial(rho: number, w: number): Material {
+  const reg = MATERIALS.regolith
+  const water = MATERIALS.water
+  return {
+    label: '地盤と同じ土',
+    rho,
+    sigmaR: rho * ((1 - w) * (reg.sigmaR / reg.rho) + w * COMPONENTS.water.sigmaR),
+    mu: rho * ((1 - w) * (reg.mu / reg.rho) + w * (water.mu / water.rho)),
+    hydrogen: w >= GROUND_W_HYDROGEN,
+    t_max: reg.t_max,
+    // 掘り出した土を使うので、調達はレゴリスと同じ扱い（現地）にする
+    components: { regolith: 1 },
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -39,3 +39,33 @@ export function List({ items }: { items: ReactNode[] }) {
 export function Explanation({ children }: { children: ReactNode }) {
   return <div className="space-y-5">{children}</div>
 }
+
+/** 簡単な表（見出しの行と、データの行） */
+export function SimpleTable({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[32rem] border-collapse text-xs">
+        <thead>
+          <tr>
+            {head.map((h) => (
+              <th key={h} className="border-b border-slate-700 px-2 py-1 text-left font-medium text-slate-200">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="align-top">
+              {r.map((c, j) => (
+                <td key={j} className="border-b border-slate-800 px-2 py-1">
+                  {c}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}

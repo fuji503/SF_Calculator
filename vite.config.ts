@@ -49,7 +49,6 @@ export default defineConfig({
   // Worker も ES モジュールにして、モジュールの定義を必要なときだけ読み込む
   worker: { format: 'es' },
   define: {
-    // 画面には末尾の .0 を省いて出す（1.0.0 → 1.0、1.0.1 はそのまま）。更新履歴の版の書き方もこれに合わせる
-    __APP_VERSION__: JSON.stringify(pkg.version.replace(/\.0$/, '')),
+    __APP_VERSION__: JSON.stringify(pkg.version),
   },
 })

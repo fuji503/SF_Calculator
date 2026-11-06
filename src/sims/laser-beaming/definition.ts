@@ -60,7 +60,8 @@ export const laserBeaming: SimDefinition = {
       group: 'laser',
       label: '波長',
       symbol: '\\lambda',
-      description: '長いほど回折でビームが広がる。大気を通すときは、大気が光を通す波長（大気の窓）に合わせる',
+      description:
+        '長いほど回折でビームが広がる。大気を通すときは、大気が光を通す波長（大気の窓）に合わせる。色の目安：紫外 0.38 µm 未満、可視光 0.38〜0.78 µm（青 約0.45、緑 約0.53、赤 約0.65）、近赤外 0.78〜3 µm、中赤外 3〜8 µm、遠赤外（熱赤外）8 µm 以上。地球の大気の主な窓：0.4〜1.3、1.5〜1.8、2.0〜2.4、3.4〜4.1、8〜13 µm（解説に表がある）',
       unit: unitDefs.wavelength,
       default: LASER_PRESETS.fiber.lambda,
       min: 0,
@@ -96,7 +97,8 @@ export const laserBeaming: SimDefinition = {
       group: 'laser',
       label: '指向ジッター（1σ、1軸あたり）',
       symbol: '\\sigma_{jitter}',
-      description: 'ビームの向きの揺れと照準のずれ。小さいほど高精度で、0 は揺れなし。目安：0.1 µrad は、10,000 km 先で 1 m ずれる角度',
+      description:
+        'いわゆる照準誤差。主に、振動などでビームの向きが細かく揺れる成分を指す。一定の向きにずれ続ける成分（バイアス）も、ここではまとめてこの 1σ の値で扱う。小さいほど高精度で、0 は揺れなし。目安：0.1 µrad は、10,000 km 先で 1 m ずれる角度',
       unit: unitDefs.angleTiny,
       default: 0.1e-6,
       min: 0,
@@ -107,7 +109,8 @@ export const laserBeaming: SimDefinition = {
       group: 'laser',
       label: '変換効率',
       symbol: '\\eta',
-      description: '電気駆動では 電力→光、化学では 反応エネルギー→光、太陽光励起では 集光した太陽光→光 の効率',
+      description:
+        '電気駆動では 電力→光、化学では 反応エネルギー→光、太陽光励起では 集光した太陽光→光 の効率。大きいほど必要な入力と排熱が減る。方式を選ぶと入る値：ファイバー 40%（実機 30〜50%）、CO2 15%（10〜20%）、化学（DF）2%、自由電子レーザ 10%（参考値）、太陽光励起 3%（参考値）',
       unit: unitDefs.fraction,
       default: LASER_PRESETS.fiber.eta,
       min: 0,
@@ -249,7 +252,8 @@ export const laserBeaming: SimDefinition = {
       group: 'path',
       label: '大気の光学的厚さ（鉛直、波長依存）',
       symbol: '\\tau',
-      description: '大きいほど大気で光が減る。鉛直方向の透過率は exp(−τ)。大気の成分と波長の組み合わせで決まる',
+      description:
+        '大きいほど大気で光が減る。鉛直方向の透過率は exp(−τ)（τ = 0.1 で 90%、1 で 37%、3 で 5%）。大気の成分と波長の組み合わせで決まる。方式と大気を選ぶと入る値（鉛直、晴天）：地球 近赤外 0.1〜0.15、DF（3.8 µm）0.3、CO2（10.6 µm）1。火星 可視〜近赤外 約0.5（ちりによる。大きな砂嵐では 5 以上）、CO2 レーザ 50（大気の二酸化炭素に吸収される）。タイタン 2〜5（もやとメタン、参考値）',
       unit: unitDefs.none,
       default: TAU_PRESETS.earth.fiber,
       min: 0,

@@ -12,6 +12,7 @@ import {
   E_FISSION,
   E_GAMMA,
   FUELS,
+  groundMaterial,
   H_N,
   MATERIALS,
   MEV,
@@ -21,8 +22,12 @@ import {
   type ComponentId,
   type CoolantId,
   type FuelId,
+  type Material,
   type MaterialId,
 } from './data.ts'
+
+/** 地表の配置の壁とふたの材料（「地盤と同じ土」を選べる） */
+export type SurfaceMaterialId = MaterialId | 'ground'
 
 export type ShieldMode = 'none' | 'shadow' | 'omni' | 'surface'
 export type Layout = 'above' | 'under' | 'semi'
@@ -91,12 +96,15 @@ export interface ReactorInputs {
   r_w: number
   H_w: number
   t_w: number
-  wall_mat: MaterialId
+  wall_mat: SurfaceMaterialId
   /** 地上・半地下のふたの厚さ */
   t_top: number
-  lid_mat: MaterialId
+  lid_mat: SurfaceMaterialId
   /** 地下の縦穴の半径 − 炉心の半径 */
   cav_gap: number
+  /** 地盤の密度 [kg/m³] と含水率（質量の割合） */
+  ground_rho: number
+  ground_w: number
   basis: 'conservative' | 'direct'
   L_up: number
   origin: Record<ComponentId, Origin>
@@ -418,8 +426,7 @@ export function computeReactor(p: ReactorInputs): ReactorResult {
   let M_cable = 0
 
   /** 材料の質量を、成分ごとの調達で分ける */
-  const split = (label: string, mat: MaterialId, mass: number): MassRow[] => {
-    const m = MATERIALS[mat]
+  const split = (label: string, m: Material, mass: number): MassRow[] => {
     if (mass <= 0) return []
     if (!m.components) return [{ label, mass, origin: 'earth' }]
     return Object.entries(m.components).map(([c, w]) => ({
@@ -455,7 +462,7 @@ export function computeReactor(p: ReactorInputs): ReactorResult {
           ? ((Math.PI * t[i]) / 3) * (rz(z) ** 2 + rz(z) * rz(z + t[i]) + rz(z + t[i]) ** 2)
           : ((4 * Math.PI) / 3) * ((z + t[i]) ** 3 - z ** 3)
         mass += V * m.rho
-        rows.push(...split(`${i + 1}層目 ${m.label}`, l.material, V * m.rho))
+        rows.push(...split(`${i + 1}層目 ${m.label}`, m, V * m.rho))
         z += t[i]
       })
       const Lr = atSurface ? z : L
@@ -531,13 +538,16 @@ export function computeReactor(p: ReactorInputs): ReactorResult {
     if (!MATERIALS[layers[layers.length - 1].material].hydrogen) warn('no-hydrogen', ['layers'])
     if (layers[0].material === 'sulfur_concrete') warn('sulfur-near-core', ['layers'])
   } else if (p.shield_mode === 'surface') {
-    const regolith = MATERIALS.regolith
-    const wall = MATERIALS[p.wall_mat]
-    const lid = MATERIALS[p.lid_mat]
+    const regolith = groundMaterial(p.ground_rho, p.ground_w)
+    /** 壁とふたの材料。「地盤と同じ土」は地盤の種類の値を使う */
+    const surfaceMaterial = (id: SurfaceMaterialId) => (id === 'ground' ? regolith : MATERIALS[id])
+    const wall = surfaceMaterial(p.wall_mat)
+    const lid = surfaceMaterial(p.lid_mat)
     const under = p.layout === 'under'
     const r_cav = R0 + p.cav_gap
-    materialsUsed.push(under ? p.lid_mat : p.wall_mat)
-    if (!under && p.t_top > 0) materialsUsed.push(p.lid_mat)
+    const used = (id: SurfaceMaterialId) => id !== 'ground' && materialsUsed.push(id)
+    used(under ? p.lid_mat : p.wall_mat)
+    if (!under && p.t_top > 0) used(p.lid_mat)
 
     /** 断面の直線が通る長さから線量を出す（§4.8） */
     const geometry = (tw: number, ttop: number, dep: number) => {
@@ -587,12 +597,13 @@ export function computeReactor(p: ReactorInputs): ReactorResult {
       V_exc = Math.PI * r_cav ** 2 * (depth + R0)
       M_exc = V_exc * regolith.rho
       M_shield = M_lid
-      massRows = split('埋め戻し', p.lid_mat, M_lid)
+      massRows = split('埋め戻し', lid, M_lid)
       up_rate = (() => {
         const r = doseRate(S_n, S_g, p.L_up, lid.sigmaR * ttop, lid.mu * ttop)
         return human ? r.H_n + r.D_g_human : r.D_g_si
       })()
       if (p.lid_mat === 'sulfur_concrete') warn('sulfur-near-core', ['lid_mat'])
+      if (!regolith.hydrogen) warn('dry-ground', ['ground_w'])
     } else {
       let tw = p.t_w
       if (p.solve) {
@@ -611,11 +622,12 @@ export function computeReactor(p: ReactorInputs): ReactorResult {
       const M_wall = Math.PI * ((p.r_w + tw) ** 2 - p.r_w ** 2) * p.H_w * wall.rho
       const M_lid = Math.PI * (p.r_w + tw) ** 2 * p.t_top * lid.rho
       M_shield = M_wall + M_lid
-      massRows = [...split('壁', p.wall_mat, M_wall), ...split('ふた', p.lid_mat, M_lid)]
+      massRows = [...split('壁', wall, M_wall), ...split('ふた', lid, M_lid)]
       const upLid = doseRate(S_n, S_g, p.L_up, lid.sigmaR * p.t_top, lid.mu * p.t_top)
       up_rate = human ? upLid.H_n + upLid.D_g_human : upLid.D_g_si
       if (p.t_top <= 0) warn('no-lid', ['t_top'])
       if (!wall.hydrogen) warn('no-hydrogen', ['wall_mat'])
+      if (p.layout === 'semi' && !regolith.hydrogen) warn('dry-ground', ['ground_w'])
       if (p.wall_mat === 'sulfur_concrete') warn('sulfur-near-core', ['wall_mat'])
     }
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { YEAR } from '../../core/physics/constants.ts'
-import { ALPHA_C_FAST, CLASSES, COOLANTS, CRITERIA, FUELS, MATERIALS, mixSigmaR, type CriteriaId, type ReactorClass } from './data.ts'
+import { alphaFor, CLASSES, COOLANTS, CRITERIA, FUELS, GROUNDS, groundMaterial, MATERIALS, mixSigmaR, type CriteriaId, type ReactorClass } from './data.ts'
 import {
   cableMass,
   computeReactor,
@@ -51,7 +51,7 @@ function base(cls: ReactorClass, over: Partial<ReactorInputs> = {}): ReactorInpu
     rho_HM: c.rho_HM,
     fuel: c.fuel,
     nu: fuel.nu,
-    alpha_c: c.spectrum === 'fast' ? ALPHA_C_FAST : fuel.alpha_c,
+    alpha_c: alphaFor(fuel, c.spectrum),
     CR: 0,
     Bu_max: c.Bu_max,
     f_n: c.f_n,
@@ -84,6 +84,8 @@ function base(cls: ReactorClass, over: Partial<ReactorInputs> = {}): ReactorInpu
     t_top: 0,
     lid_mat: 'regolith',
     cav_gap: 0.3,
+    ground_rho: GROUNDS.moon.rho,
+    ground_w: GROUNDS.moon.w,
     basis: 'conservative',
     L_up: 1000,
     origin: { regolith: 'local', cement: 'earth', water: 'earth', sulfur: 'earth', resin: 'earth' },
@@ -176,7 +178,7 @@ describe('仕様書 §9 のテストケース', () => {
   it('T4：Kilopower の燃料（43 kWt、10年）', () => {
     const o = outputsOf(base('kilopower', { T_op: 10 * YEAR, shield_mode: 'none' }))
     expect4(o.MWd, 157.1)
-    expect4(o.m_burn, 0.1818)
+    expect4(o.m_burn, 0.2135)
     expect4(o.Bu / ((1e9 * 86_400) / 1e3), 3.889)
   })
 
@@ -431,3 +433,55 @@ describe('入力チェックと性質', () => {
   })
 })
 
+describe('地盤の種類と自動の層', () => {
+  const underground = (over: Partial<ReactorInputs> = {}) =>
+    base('kilopower', { shield_mode: 'surface', layout: 'under', solve: false, depth: 2, basis: 'direct', L: 4, h_t: 1, ...over })
+
+  it('含水率 0・密度 1800 kg/m³ の地盤は、月のレゴリスの表の値と一致する', () => {
+    const g = groundMaterial(1800, 0)
+    expect4(g.sigmaR, MATERIALS.regolith.sigmaR, 1e-9)
+    expect4(g.mu, MATERIALS.regolith.mu, 1e-9)
+    expect(g.hydrogen).toBe(false)
+  })
+
+  it('地球の湿った土では、地盤を通る中性子の線量が大きく下がる（ガンマ線はほぼ同じ）', () => {
+    const moon = outputsOf(underground())
+    const earth = outputsOf(underground({ ground_rho: GROUNDS.earth.rho, ground_w: GROUNDS.earth.w }))
+    // 中性子の比は、除去断面積の差 × 地盤を通る長さで決まる
+    const dSigma = groundMaterial(GROUNDS.earth.rho, GROUNDS.earth.w).sigmaR - MATERIALS.regolith.sigmaR
+    expect4(earth.direct!.year_n / moon.direct!.year_n, Math.exp(-dSigma * moon.ground_path), 1e-6)
+    expect(earth.direct!.year_n).toBeLessThan(moon.direct!.year_n * 1e-2)
+    expect(earth.direct!.year_g).toBeLessThan(moon.direct!.year_g)
+    expect(earth.direct!.year_g).toBeGreaterThan(moon.direct!.year_g * 1e-3)
+  })
+
+  it('乾いた地盤の地下では精度の警告を出す', () => {
+    expect(codes(underground())).toContain('dry-ground')
+    expect(codes(underground({ ground_w: GROUNDS.earth.w }))).not.toContain('dry-ground')
+  })
+
+  it('「地盤と同じ土」：月ではレゴリスと同じ結果、地球の土では埋め戻しの中性子の線量が下がる', () => {
+    const cons = (over: Partial<ReactorInputs> = {}) => underground({ basis: 'conservative', L: 1000, h_t: 2, ...over })
+    const reg = outputsOf(cons())
+    const moon = outputsOf(cons({ lid_mat: 'ground' }))
+    expect4(moon.shielded.year, reg.shielded.year, 1e-9)
+    expect4(moon.M_shield, reg.M_shield, 1e-9)
+    const earth = outputsOf(cons({ lid_mat: 'ground', ground_rho: GROUNDS.earth.rho, ground_w: GROUNDS.earth.w }))
+    expect(earth.shielded.year_n).toBeLessThan(moon.shielded.year_n * 0.1)
+    expect(earth.massRows.every((r) => r.origin === 'local')).toBe(true)
+  })
+
+  it('内側の層だけで基準を満たすと、自動の層は 0 cm になる', () => {
+    const one = outputsOf(base('kilopower', { layers: [layer('lih', 3), layer('lih')], solve_count: 1 }))
+    expect(one.thickness[1]).toBe(0)
+    const two = outputsOf(base('kilopower', { layers: [layer('lih', 3), layer('tungsten'), layer('lih')], solve_count: 2 }))
+    expect(two.thickness[1]).toBeLessThan(1e-4)
+    expect(two.thickness[2]).toBeLessThan(1e-4)
+  })
+
+  it('コンクリート1層だけの遮蔽も計算できる', () => {
+    const o = outputsOf(base('kilopower', { shield_mode: 'omni', layers: [layer('concrete')], solve_count: 1, ...criteria('public') }))
+    expect(o.thickness[0]).toBeGreaterThan(0)
+    expect(o.shielded.ratio).toBeLessThanOrEqual(1.0001)
+  })
+})
