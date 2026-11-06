@@ -16,6 +16,16 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.0',
+    date: '2026-11-06',
+    changes: [
+      '正式リリース。5つのシミュレータ（太陽光集光・送光、レーザ発振・送電、サンシェード・展開軌道、電源・排熱、原子炉・遮蔽）の計算と解説がそろった。',
+      'プログラムは MIT License、仕様書は CC BY 4.0 で公開。メニューに「ライセンス」の画面を追加（ライセンスの要点と全文、免責、GitHub のリポジトリ、使っているライブラリ）。',
+      '各仕様書の末尾に、ライセンスと引用するときの表記の例を追加。',
+      '使っているライブラリの著作権表示とライセンス文を、licenses.txt にまとめて配布するようにした。',
+    ],
+  },
+  {
     version: '0.7.1',
     date: '2026-11-06',
     changes: [

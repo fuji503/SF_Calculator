@@ -65,6 +65,9 @@ export function Drawer({ open, current, onClose }: Props) {
           <MenuItem route={{ name: 'changelog' }} current={current} onSelect={onClose}>
             {t.menu.changelog}
           </MenuItem>
+          <MenuItem route={{ name: 'license' }} current={current} onSelect={onClose}>
+            {t.menu.license}
+          </MenuItem>
         </ul>
       </nav>
     </div>

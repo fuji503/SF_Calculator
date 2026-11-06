@@ -12,6 +12,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/sim/solar-beaming')).toEqual({ name: 'sim', id: 'solar-beaming' })
     expect(parseRoute('#/howto')).toEqual({ name: 'howTo' })
     expect(parseRoute('#/changelog/')).toEqual({ name: 'changelog' })
+    expect(parseRoute('#/license')).toEqual({ name: 'license' })
   })
 
   it('知らないパスは notFound', () => {
@@ -28,6 +29,7 @@ describe('routeHref', () => {
       { name: 'sim', id: 'reactor-shield' },
       { name: 'howTo' },
       { name: 'changelog' },
+      { name: 'license' },
     ]
     for (const r of routes) expect(parseRoute(routeHref(r))).toEqual(r)
   })

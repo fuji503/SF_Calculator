@@ -7,6 +7,7 @@ export type Route =
   | { name: 'sim'; id: string }
   | { name: 'howTo' }
   | { name: 'changelog' }
+  | { name: 'license' }
   | { name: 'notFound' }
 
 export function parseRoute(hash: string): Route {
@@ -15,6 +16,7 @@ export function parseRoute(hash: string): Route {
   const parts = path.replace(/^\//, '').split('/')
   if (parts.length === 1 && parts[0] === 'howto') return { name: 'howTo' }
   if (parts.length === 1 && parts[0] === 'changelog') return { name: 'changelog' }
+  if (parts.length === 1 && parts[0] === 'license') return { name: 'license' }
   if (parts.length === 2 && parts[0] === 'sim' && parts[1] !== '') {
     return { name: 'sim', id: decodeURIComponent(parts[1]) }
   }
@@ -31,6 +33,8 @@ export function routeHref(route: Route): string {
       return '#/howto'
     case 'changelog':
       return '#/changelog'
+    case 'license':
+      return '#/license'
     case 'notFound':
       return '#/'
   }

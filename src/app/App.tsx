@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { ChangelogScreen } from '../screens/ChangelogScreen.tsx'
 import { HowToScreen } from '../screens/HowToScreen.tsx'
+import { LicenseScreen } from '../screens/LicenseScreen.tsx'
 import { NotFoundScreen } from '../screens/NotFoundScreen.tsx'
 import { SimScreen } from '../screens/SimScreen.tsx'
 import { TopScreen } from '../screens/TopScreen.tsx'
@@ -38,6 +39,8 @@ function Screen({ route }: { route: Route }) {
       return <HowToScreen />
     case 'changelog':
       return <ChangelogScreen />
+    case 'license':
+      return <LicenseScreen />
     case 'notFound':
       return <NotFoundScreen />
   }
