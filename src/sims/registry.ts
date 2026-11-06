@@ -4,10 +4,10 @@ import type { SimModuleMeta } from './types.ts'
 export const simModules: readonly SimModuleMeta[] = [
   {
     id: 'solar-beaming',
-    name: '太陽光集光・送電',
+    name: '太陽光集光・送光',
     summary: '多数の反射鏡で太陽光を集めて送るときの、受光地点の放射照度とスポットの大きさを計算します。',
     icon: 'mirror',
-    specFile: '太陽光集光・送電モジュール仕様書3(検証版).md',
+    specFile: '太陽光集光・送光モジュール仕様書3(検証版).md',
   },
   {
     id: 'laser-beaming',

@@ -1,5 +1,5 @@
 /**
- * 太陽光集光・送電モジュールの計算（太陽光集光・送電モジュール仕様書3(検証版) §4）。
+ * 太陽光集光・送光モジュールの計算（太陽光集光・送光モジュール仕様書3(検証版) §4）。
  * UI に依存しない純粋関数。角度は rad、長さは m、太陽距離だけ AU。
  */
 import { SOLAR_CONSTANT_1AU, SUN_ANGULAR_DIAMETER_1AU, SUN_RADIANCE } from '../../core/physics/constants.ts'

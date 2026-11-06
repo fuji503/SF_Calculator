@@ -1,16 +1,10 @@
 import type { ReactNode } from 'react'
-import { implementedSims } from '../sims/implemented.ts'
-import { simModules } from '../sims/registry.ts'
 
 /** 使い方画面（WebApp仕様書 §4.4） */
 export function HowToScreen() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold text-white md:text-2xl">使い方</h1>
-
-      <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
-        今使えるのは{simModules.filter((m) => implementedSims.has(m.id)).map((m) => `「${m.name}」`).join('')}です。ほかのシミュレータは順に追加します。
-      </p>
 
       <Section title="基本の流れ">
         <ol className="list-decimal space-y-1 pl-6">

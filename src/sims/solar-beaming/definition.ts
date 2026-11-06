@@ -6,7 +6,7 @@ import { computeSolar, type AtmCase, type SolarInputs, type SolarOutputs } from 
 const DEG = Math.PI / 180
 const usesAtmosphere = (i: Inputs) => i.atm_case !== 'space'
 
-/** 太陽光集光・送電モジュール（仕様書3(検証版) §3、§5、§6） */
+/** 太陽光集光・送光モジュール（仕様書3(検証版) §3、§5、§6） */
 export const solarBeaming: SimDefinition = {
   id: 'solar-beaming',
   version: 1,
