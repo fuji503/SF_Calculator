@@ -35,7 +35,7 @@ export type Origin = 'earth' | 'local'
 
 export interface Layer {
   material: MaterialId
-  /** 厚さ [m]。基準から決める層では使わない */
+  /** 厚さ [m]。自動で厚さが決まる層では使わない */
   t: number
 }
 
@@ -86,7 +86,7 @@ export interface ReactorInputs {
   /** true なら基準から厚さを出す */
   solve: boolean
   layers: Layer[]
-  /** 基準から決める層の数（最後の1層、または最後の2層） */
+  /** 自動で厚さが決まる層の数（最後の1層、または最後の2層） */
   solve_count: 1 | 2
   layout: Layout
   /** 地上：炉心の下端の地面からの高さ */

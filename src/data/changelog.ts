@@ -16,6 +16,14 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.1.1',
+    date: '2026-11-07',
+    changes: [
+      '仕様書を実装に合わせて直した（サンシェードの比推力の初期値と §6 のエラー、電源・排熱の放電深度の情報の条件、原子炉・遮蔽の層の例と §6 のメッセージ、WebApp仕様書の解説欄・グラフ・モジュール定義・ディレクトリ構成）。計算結果は変わらない。',
+      '「電源・排熱」：遮蔽の比質量が未設定のときの情報の文言を、「原子炉・遮蔽モジュールで計算できます」に変えた。',
+    ],
+  },
+  {
     version: '1.1.0',
     date: '2026-11-06',
     changes: [

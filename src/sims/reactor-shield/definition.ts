@@ -59,7 +59,7 @@ const withBoom = (i: Inputs) => isShadow(i) && Boolean(i.boom)
 const optimizing = (i: Inputs) => withBoom(i) && Boolean(i.optimize_L)
 const hxOn = (i: Inputs) => Boolean(i.hx_eval)
 const rowsOf = (i: Inputs, key: string) => (Array.isArray(i[key]) ? (i[key] as TableRow[]) : [])
-/** 基準から決める層の数（層の数が少ないときはその数まで） */
+/** 自動で厚さが決まる層の数（層の数が少ないときはその数まで） */
 const solveCount = (i: Inputs) => Math.min(Number(i.solve_count), rowsOf(i, 'layers').length)
 
 const fraction = (key: string, label: string, def: number, extra: Partial<NumberParam>): NumberParam => ({
@@ -121,7 +121,7 @@ function classPreset(cls: string): Inputs {
 
 const layer = (material: MaterialId, t: number): TableRow => ({ material, t })
 
-/** 層の例（§3.5）。選ぶと層と、基準から決める層の数が入る */
+/** 層の例（§3.5）。選ぶと層と、自動で厚さが決まる層の数が入る */
 const LAYER_PRESETS: Record<string, { label: string; layers: TableRow[]; solve_count: string }> = {
   space: { label: '宇宙：タングステン＋水素化リチウム', layers: [layer('tungsten', 5 * CM), layer('lih', 80 * CM)], solve_count: '2' },
   plant: {

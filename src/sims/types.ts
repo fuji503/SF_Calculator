@@ -97,7 +97,7 @@ export interface TableColumn {
   min?: number
   max?: number
   /**
-   * 計算で決まるセルのとき、その値が入る出力のキーを返す（例：基準から決める層の厚さ）。
+   * 計算で決まるセルのとき、その値が入る出力のキーを返す（例：自動で厚さが決まる層の厚さ）。
    * null を返すセルは入力
    */
   autoKey?: (row: number, rowCount: number, inputs: Inputs) => string | null
