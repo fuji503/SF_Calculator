@@ -247,7 +247,7 @@ const inputs: ParamDef[] = [
     key: 'impactor',
     group: 'impactor',
     label: '衝突体の材質',
-    description: '選ぶと密度が入る。材質は、衝突の圧力と、衝突体が溶けるかどうかの判定にも使う。どれも球として計算する',
+    description: '選ぶと密度が入る。材質は、衝突の圧力と、衝突体が溶けるかどうかの判定にも使う。どれも球として計算する。コンクリートは、水分が熱で膨らむより先に衝撃で粉々になる（溶けるかどうかの判定は資料がないので出さない。解説を参照）',
     options: [...(Object.keys(IMPACTORS) as ImpactorId[]).map((value) => ({ value, label: IMPACTORS[value].label })), { value: CUSTOM, label: 'カスタム' }],
     default: 'stony',
     presets: (v): Inputs => (IMPACTORS[v as ImpactorId] ? { delta: IMPACTORS[v as ImpactorId].delta } : {}),

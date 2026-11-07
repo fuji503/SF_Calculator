@@ -16,6 +16,11 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.3.2',
+    date: '2026-11-07',
+    changes: ['「クレータ造成」：衝突体のコンクリートについて、熱（中の水分の膨張）で砕けるかどうかの説明を、解説と材質の選択欄に追加した。'],
+  },
+  {
     version: '1.3.1',
     date: '2026-11-07',
     changes: [
