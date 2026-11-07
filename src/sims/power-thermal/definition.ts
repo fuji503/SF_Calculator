@@ -1,14 +1,14 @@
-import { unitDefs, type UnitDef } from '../../core/physics/units.ts'
+import { fixedUnit, unitDefs, type UnitDef } from '../../core/physics/units.ts'
 import type { ComputeResult, EnumParam, Inputs, NumberParam, OutputDef, OutputValue, ParamDef, SimDefinition } from '../types.ts'
 import {
   computePower,
   CONVERTER_PRESETS,
   LOCATION_PRESETS,
   REACTOR_PRESETS,
+  RX_PRESETS,
   TES_INSULATION_PRESETS,
   TES_MEDIUM_PRESETS,
   WATER_BUFFER,
-  type BeamMode,
   type ConverterType,
   type Engine,
   type LocationId,
@@ -18,7 +18,10 @@ import {
   type RadiatorId,
   type ReactorClass,
   type ReactorMode,
+  type RxGeom,
+  type RxType,
   type SunSource,
+  type SupplyMode,
   type TesCharge,
   type TesOrigin,
 } from './model.ts'
@@ -42,7 +45,10 @@ const hasSun = (i: Inputs) => i.sun_source !== 'none'
 const isPv = (i: Inputs) => i.sun_source === 'pv'
 const isSolarThermal = (i: Inputs) => i.sun_source === 'solar_thermal'
 const withReactor = (i: Inputs) => i.reactor !== 'none'
-const withBeam = (i: Inputs) => i.beam !== 'none'
+const withWire = (i: Inputs) => i.wire !== 'none'
+const withLight = (i: Inputs) => i.light !== 'none'
+const withBeam = (i: Inputs) => withWire(i) || withLight(i)
+const lightAuto = (i: Inputs) => withLight(i) && Boolean(i.light_auto)
 const isTes = (i: Inputs) => i.night_buffer === 'tes'
 const isFurnace = (i: Inputs) => isTes(i) && i.tes_charge === 'solar_furnace'
 const isHeater = (i: Inputs) => isTes(i) && i.tes_charge === 'heater'
@@ -76,6 +82,13 @@ const temperature = (key: string, label: string, def: number, extra: Partial<Num
 
 // ---------------------------------------------------------------------------
 // プリセット
+
+const SUPPLY_OPTIONS: EnumParam['options'] = [
+  { value: 'none', label: '使わない' },
+  { value: 'always', label: '常時' },
+  { value: 'sun_only', label: '日照中のみ' },
+  { value: 'ecl_only', label: '日陰中のみ' },
+]
 
 const LOCATION_LABELS: Record<LocationId, string> = {
   deep_space: '深宇宙（1 AU、常に日照）',
@@ -423,8 +436,9 @@ const baseInputs: ParamDef[] = [
     kind: 'enum',
     key: 'sun_source',
     group: 'config',
-    label: '日照中の電源',
-    description: 'ほかの電源で足りない分と、日陰に備えてためる分をまかなう大きさを自動で決める',
+    label: '太陽光由来の電源',
+    description:
+      '太陽光で発電するので、日照中だけ使える。大きさは、ほかの電源で足りない分と、日陰に備えてためる分をまかなうように自動で決める。外から送られてくる光（集光した太陽光を含む）は「光で受電」に入れる',
     options: [
       { value: 'none', label: 'なし' },
       { value: 'pv', label: '太陽電池' },
@@ -437,26 +451,32 @@ const baseInputs: ParamDef[] = [
     key: 'reactor',
     group: 'config',
     label: '原子炉',
-    description: '「自動で決める」は、日照中の電源が「なし」のときだけ選べる（原子炉と外部電源だけで日陰中もまかなう大きさにする）',
+    description: '「自動で決める」は、太陽光由来の電源が「なし」のときだけ選べる（原子炉と外部電源だけで日陰中もまかなう大きさにする）。光で受電の量を自動で決めるときは選べない',
     options: [
       { value: 'none', label: '使わない' },
-      { value: 'auto', label: '熱出力を自動で決める', disabledWhen: hasSun },
+      { value: 'auto', label: '熱出力を自動で決める', disabledWhen: (i) => hasSun(i) || lightAuto(i) },
       { value: 'fixed', label: '熱出力を指定する' },
     ],
     default: 'none',
   },
   {
     kind: 'enum',
-    key: 'beam',
+    key: 'wire',
     group: 'config',
-    label: '外部電源',
+    label: '外部電源：送電線で受電',
     description:
-      'この設備の外から受け取る（買う）電力。自分の発電設備の大きさや質量には含めない。例：衛星からレーザや太陽光で送られてくる光を受光パネルで変えた電力、基地の電力網から引く電力。「常時」は日陰中も受け取れる場合（日陰にならない場所から送るなど）',
-    options: [
-      { value: 'none', label: '使わない' },
-      { value: 'always', label: '常時' },
-      { value: 'sun_only', label: '日照中のみ' },
-    ],
+      '他の地域の発電所、移動式の発電機、基地の電力網などから、電線で受け取る電力。送電線と送り側の設備の質量は含めない。選ぶのは受け取る時間帯（「日陰中のみ」は夜だけ受け取る場合）',
+    options: SUPPLY_OPTIONS,
+    default: 'none',
+  },
+  {
+    kind: 'enum',
+    key: 'light',
+    group: 'config',
+    label: '外部電源：光で受電',
+    description:
+      'レーザや集光した太陽光で送られてくる光を、受光パネルで電気に変える。受光パネルの面積・質量・温度も計算する。送電線で受電と同時に使える。選ぶのは受け取る時間帯（「日陰中のみ」は、昼は自前の太陽電池、夜はレーザで受け取るような場合）',
+    options: SUPPLY_OPTIONS,
     default: 'none',
   },
   {
@@ -598,17 +618,182 @@ const baseInputs: ParamDef[] = [
   },
   ...engineParams('r', 'eng_r', 'stirling', '原子炉の高温側の温度'),
 
-  // §3.6 (d) 外部電源（受電）
+  // §3.6 (d) 送電線で受電
   {
     kind: 'number',
-    key: 'P_beam',
-    group: 'beam',
-    label: '外部電源から受け取る電力（直流に変えたあと）',
-    symbol: 'P_{beam}',
-    description: '外から受け取る電力。太陽光集光・送光やレーザ発振・送電と組み合わせるときは、そちらの結果から求めた受け取る電力を入れる。受け取る設備（受光パネルなど）の面積と質量は、ここには含めない',
+    key: 'P_wire',
+    group: 'wire',
+    label: '送電線から受け取る電力',
+    symbol: 'P_{wire}',
+    description: '設備に届いた電力（送電線での損失は引いたあと）',
     unit: power,
     default: 0,
     min: 0,
+  },
+
+  // §3.6 (e) 光で受電
+  {
+    kind: 'boolean',
+    key: 'light_auto',
+    group: 'light',
+    label: '受け取る光の量',
+    description:
+      '「光の合計を指定する」は、レーザ発振・送電などの結果を写す使い方。「不足分を自動で決める」は、受け取る時間帯の不足分をまかなう光の合計を出す（その値をレーザ発振・送電の逆算に写せる）。自動は、原子炉の自動と同時には使えず、受け取る時間帯が「常時」「日照中のみ」のときは太陽光由来の電源が「なし」のときだけ使える',
+    default: false,
+    labels: ['光の合計を指定する', '不足分を自動で決める'],
+  },
+  {
+    kind: 'enum',
+    key: 'rx_geom',
+    group: 'light',
+    label: '受光面の決め方',
+    description: '光の合計・到達放射照度・受光面の直径のうち2つを決めると、残りが決まる（光の合計 = 到達放射照度 × 受光面の面積）。自動のときは、到達放射照度か受光面の直径の一方を入れる',
+    options: [
+      { value: 'P_E', label: '光の合計と到達放射照度から' },
+      { value: 'P_D', label: '光の合計と受光面の直径から' },
+      { value: 'E_D', label: '到達放射照度と受光面の直径から', disabledWhen: lightAuto },
+    ],
+    default: 'P_E',
+  },
+  {
+    kind: 'number',
+    key: 'P_light',
+    group: 'light',
+    label: '受光面に入る光の合計',
+    symbol: 'P_{light}',
+    description: '電気に変える前の光の量。レーザ発振・送電の「受光面に入る光の合計」、太陽光集光・送光の「スポットに届く光の合計」を写す',
+    unit: power,
+    default: 1e6,
+    min: 0,
+    minExclusive: true,
+    role: (i) => (lightAuto(i) || i.rx_geom === 'E_D' ? 'output' : 'input'),
+  },
+  {
+    kind: 'number',
+    key: 'E_light',
+    group: 'light',
+    label: '到達放射照度（単位面積あたり）',
+    symbol: 'E_{light}',
+    description: '受光面 1 m² あたりの平均の光の強さ。強いほど受光パネルは小さく軽くなるが、熱くなる。レーザ発振・送電の同じ名前の出力を写す',
+    unit: unitDefs.irradiance,
+    default: 1361,
+    min: 0,
+    minExclusive: true,
+    role: (i) => (i.rx_geom === 'P_D' ? 'output' : 'input'),
+  },
+  {
+    kind: 'number',
+    key: 'D_rx',
+    group: 'light',
+    label: '受光面の直径',
+    symbol: 'D_{rx}',
+    description: 'レーザ発振・送電の「受光面の直径」を写す（「実効スポット直径」と同じになるのは、レーザ側の倍率が1倍のときだけ）',
+    unit: unitDefs.length,
+    default: 30,
+    min: 0,
+    minExclusive: true,
+    role: (i) => (i.rx_geom === 'P_E' ? 'output' : 'input'),
+  },
+  {
+    kind: 'number',
+    key: 'k_peak',
+    group: 'light',
+    label: '中心の強さ（平均の何倍か）',
+    symbol: 'k_{peak}',
+    description: '受光パネルの温度は、いちばん強い中心で高くなる。レーザ発振・送電の同じ名前の出力を写す（受光面がスポットと同じ直径で約2.3倍）。集光した太陽光はほぼ一様なので 1',
+    unit: fixedUnit('倍'),
+    default: 1,
+    min: 1,
+    rangeMessage: '1 以上で入力してください',
+  },
+  {
+    kind: 'enum',
+    key: 'rx_type',
+    group: 'light',
+    label: '受光パネルの種類',
+    description: '選ぶと、変換効率の目安が入る。太陽電池は、材料で決まる波長より長い光を電気に変えられず、短すぎる光では効率が大きく下がるので、光の波長に合わせて選ぶ',
+    options: [
+      { value: 'solar', label: '太陽光用（宇宙用の多接合）' },
+      { value: 'gaas', label: 'GaAs（約0.8 µm のレーザ用）※参考値' },
+      { value: 'ingaas', label: 'InGaAs など（約1.06 µm のレーザ用）※参考値' },
+      { value: 'ingaasp', label: 'InGaAsP/InP（約1.55 µm のレーザ用）※参考値' },
+      { value: CUSTOM, label: 'カスタム' },
+    ],
+    default: 'ingaas',
+    presets: (v): Inputs => {
+      const pre = RX_PRESETS[v as Exclude<RxType, 'custom'>]
+      return pre ? { eta_rx: pre.eta } : {}
+    },
+    customValue: CUSTOM,
+    customKeys: ['eta_rx'],
+  },
+  {
+    kind: 'number',
+    key: 'lambda_light',
+    group: 'light',
+    label: '光の波長',
+    symbol: '\\lambda',
+    description: 'レーザ発振・送電の「レーザ波長」を写す。受光パネルの種類に合っているかを確かめる（効率は種類で決める）。約 2 µm より長い光（CO2 レーザなど）は太陽電池では電気に変えられない',
+    unit: unitDefs.wavelength,
+    default: 1.07e-6,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: (i) => i.rx_type !== 'solar',
+  },
+  fraction('eta_rx', '変換効率（光 → 電気）', RX_PRESETS.ingaas.eta, {
+    group: 'light',
+    symbol: '\\eta_{rx}',
+    description:
+      '大きいほど、同じ光から多くの電気が得られ、熱が減る。種類を選ぶと入る値：太陽光用 30%、GaAs 50%（研究の記録は 68.9%）、InGaAs など 40%、InGaAsP 40%（記録は 45%）。温度による変化は含めない',
+  }),
+  {
+    kind: 'number',
+    key: 'rho_rx',
+    group: 'light',
+    label: '受光パネルの面密度（構造を含む）',
+    symbol: '\\rho_{rx}',
+    description: '小さいほど軽い。太陽電池と同じく、硬いパネルで 2〜3、柔らかいパネルで約 1（参考値）',
+    unit: unitDefs.arealDensity,
+    default: 2,
+    min: 0,
+  },
+  temperature('T_rx_max', '受光パネルの許容温度', 373, {
+    group: 'light',
+    symbol: 'T_{rx,max}',
+    description: '中心の温度がこれを超えると、警告を出すか冷却する。初期値は 100℃（参考値）',
+  }),
+  {
+    kind: 'number',
+    key: 'eps_rx_f',
+    group: 'light',
+    label: '受光パネルの放射率（表）',
+    symbol: '\\epsilon_{rx,f}',
+    description: '大きいほど熱を放射しやすく、パネルが冷える（参考値）',
+    unit: unitDefs.none,
+    default: 0.85,
+    min: 0,
+    max: 1,
+  },
+  {
+    kind: 'number',
+    key: 'eps_rx_b',
+    group: 'light',
+    label: '受光パネルの放射率（裏）',
+    symbol: '\\epsilon_{rx,b}',
+    description: '裏面から熱を捨てないときは 0（参考値）',
+    unit: unitDefs.none,
+    default: 0.85,
+    min: 0,
+    max: 1,
+  },
+  {
+    kind: 'boolean',
+    key: 'rx_cool',
+    group: 'light',
+    label: '許容温度を超えたとき',
+    description: '「冷却する」は、冷却液などでパネル全体を許容温度に保ち、パネル自身で捨てきれない熱をラジエータへ送る（配管やポンプの質量と電力は含めない）',
+    default: false,
+    labels: ['警告だけ', '冷却する'],
   },
 
   // §3.4 蓄電池
@@ -737,7 +922,7 @@ const baseInputs: ParamDef[] = [
     key: 'tes_charge',
     group: 'tes_charge',
     label: '熱の入れ方（原子炉から直接送る分の残り）',
-    description: '電気ヒータ：日照中の電源や外部電源の電力で加熱する。太陽炉：集光鏡で直接加熱する',
+    description: '電気ヒータ：太陽光由来の電源や外部電源の電力で加熱する。太陽炉：集光鏡で直接加熱する',
     options: [
       { value: 'heater', label: '電気ヒータ' },
       { value: 'solar_furnace', label: '太陽炉' },
@@ -875,7 +1060,8 @@ function scenarioPreset(id: string): Inputs {
     reactor_class: 'kilopower',
     ...reactorPreset('kilopower'),
     shield_include: true,
-    beam: 'none',
+    wire: 'none',
+    light: 'none',
     night_buffer: 'battery',
     P_peak: 20 * KW,
     P_idle: 20 * KW,
@@ -909,10 +1095,12 @@ const RADIATORS: { id: RadiatorId; label: string; visible?: (i: Inputs) => boole
   { id: 's', label: '太陽熱用', visible: isSolarThermal },
   { id: 'tes', label: '蓄熱体用', visible: isTes },
   { id: 'pl', label: 'ミッション機器用' },
+  { id: 'rx', label: '受光パネル用', visible: (i) => withLight(i) && Boolean(i.rx_cool) },
 ]
 
 const MASS_ITEMS: { key: string; label: string; visible?: (i: Inputs) => boolean }[] = [
   { key: 'M_pv', label: '太陽電池', visible: isPv },
+  { key: 'M_rx', label: '受光パネル', visible: withLight },
   { key: 'M_conc', label: '集光鏡（発電用）', visible: isSolarThermal },
   { key: 'M_reactor', label: '原子炉', visible: withReactor },
   { key: 'M_shield', label: '遮蔽', visible: withReactor },
@@ -937,11 +1125,21 @@ const outputs: OutputDef[] = [
   {
     key: 'P_gen',
     kind: 'number',
-    label: '日照中の電源の必要発電量',
+    label: '太陽光由来の電源の必要発電量',
     symbol: 'P_{gen}',
     unit: power,
     primary: true,
     visibleWhen: hasSun,
+  },
+  {
+    key: 'P_lt',
+    kind: 'number',
+    label: '光で受電で得られる電力',
+    symbol: 'P_{lt}',
+    unit: power,
+    primary: true,
+    description: '受光面に入る光の合計 × 変換効率',
+    visibleWhen: withLight,
   },
   { key: 'A_rad', kind: 'number', label: 'ラジエータ総面積', symbol: 'A_{rad}', unit: unitDefs.area, primary: true, description: 'パネルの片面の面積の合計' },
 
@@ -997,6 +1195,24 @@ const outputs: OutputDef[] = [
     visibleWhen: (i) => (withReactor(i) || withBeam(i)) && hasEclipse(i),
   },
   {
+    key: 'P_beam_sun',
+    kind: 'number',
+    group: 'source',
+    label: '外部電源の電力の合計（日照中）',
+    symbol: 'P_{beam,sun}',
+    unit: power,
+    visibleWhen: withBeam,
+  },
+  {
+    key: 'P_beam_ecl',
+    kind: 'number',
+    group: 'source',
+    label: '外部電源の電力の合計（日陰中）',
+    symbol: 'P_{beam,ecl}',
+    unit: power,
+    visibleWhen: (i) => withBeam(i) && hasEclipse(i),
+  },
+  {
     key: 'P_chg',
     kind: 'number',
     group: 'source',
@@ -1013,6 +1229,39 @@ const outputs: OutputDef[] = [
     label: '日照中の余りの電力',
     unit: power,
     description: 'ほかの電源だけで日照中の電力が足り、余る分',
+  },
+
+  // 光で受電（受光パネル）
+  { key: 'A_rx', kind: 'number', group: 'rx', label: '受光パネルの面積', symbol: 'A_{rx}', unit: unitDefs.area },
+  { key: 'M_rx', kind: 'number', group: 'rx', label: '受光パネルの質量', symbol: 'M_{rx}', unit: mass },
+  { key: 'Q_rx', kind: 'number', group: 'rx', label: '受光パネルで熱になる光', symbol: 'Q_{rx}', unit: power, description: '電気にならなかった光（反射する分も熱として数える）' },
+  {
+    key: 'T_rx_avg',
+    kind: 'number',
+    group: 'rx',
+    label: '受光パネルの温度（平均）',
+    symbol: 'T_{rx,avg}',
+    unit: unitDefs.temperature,
+    description: '冷却しない場合の、平均の強さでの温度。受け取る時間帯のうち高いほう',
+  },
+  {
+    key: 'T_rx_peak',
+    kind: 'number',
+    group: 'rx',
+    label: '受光パネルの温度（中心）',
+    symbol: 'T_{rx,peak}',
+    unit: unitDefs.temperature,
+    description: '冷却しない場合の、いちばん強い中心での温度。これが許容温度を超えると、警告を出すか冷却する',
+  },
+  {
+    key: 'Q_cool',
+    kind: 'number',
+    group: 'rx',
+    label: '冷却で捨てる熱',
+    symbol: 'Q_{cool}',
+    unit: power,
+    description: 'パネル自身で捨てきれず、ラジエータ（受光パネル用）へ送る熱',
+    visibleWhen: (i) => Boolean(i.rx_cool),
   },
 
   // 蓄電池
@@ -1118,8 +1367,8 @@ const outputs: OutputDef[] = [
     unit: mass,
     visibleWhen: (i) => isTes(i) && i.tes_origin === 'local',
   },
-  // 出力欄に出している質量（蓄電池、蓄熱材、排熱バッファ、ラジエータ）は除く
-  ...MASS_ITEMS.filter(({ key }) => !['M_bat', 'M_tes', 'M_buf', 'M_rad'].includes(key)).map(
+  // 出力欄に出している質量（受光パネル、蓄電池、蓄熱材、排熱バッファ、ラジエータ）は除く
+  ...MASS_ITEMS.filter(({ key }) => !['M_rx', 'M_bat', 'M_tes', 'M_buf', 'M_rad'].includes(key)).map(
     ({ key, label, visible }): OutputDef => ({
       key,
       kind: 'number',
@@ -1135,7 +1384,13 @@ const outputs: OutputDef[] = [
 /** 電源・排熱モジュール（仕様書3(検証版) §3、§5、§6） */
 export const powerThermal: SimDefinition = {
   id: 'power-thermal',
-  version: 1,
+  version: 2,
+  // 仕様書3.5までの「外部電源」（直流に変えたあとの電力、受電設備は含めない）は、送電線で受電と同じ意味
+  migrate: (inputs, fromVersion) => {
+    if (fromVersion >= 2) return inputs
+    const { beam, P_beam, ...rest } = inputs
+    return { ...rest, wire: beam === 'always' || beam === 'sun_only' ? beam : 'none', P_wire: typeof P_beam === 'number' ? P_beam : 0, light: 'none' }
+  },
   collapsibleGroups: true,
   groups: [
     { id: 'scenario', label: '構成の例' },
@@ -1149,6 +1404,8 @@ export const powerThermal: SimDefinition = {
     { id: 'reactor', label: '原子炉', visibleWhen: withReactor },
     { id: 'eng_r', label: '熱機関（原子炉用）', parent: 'reactor' },
     { id: 'beam', label: '外部電源', visibleWhen: withBeam },
+    { id: 'wire', label: '送電線で受電', parent: 'beam', visibleWhen: withWire },
+    { id: 'light', label: '光で受電', parent: 'beam', visibleWhen: withLight },
     { id: 'bat', label: '蓄電池' },
     { id: 'tes', label: '越夜用の蓄熱体', visibleWhen: isTes },
     { id: 'tes_medium', label: '蓄熱材', parent: 'tes' },
@@ -1160,6 +1417,7 @@ export const powerThermal: SimDefinition = {
   outputGroups: [
     { id: 'load', label: '負荷' },
     { id: 'source', label: '電源' },
+    { id: 'rx', label: '受光パネル', visibleWhen: withLight },
     { id: 'bat', label: '蓄電池' },
     { id: 'tes', label: '蓄熱体', visibleWhen: isTes },
     { id: 'buf', label: '排熱バッファ', visibleWhen: isAverage },
@@ -1173,14 +1431,24 @@ export const powerThermal: SimDefinition = {
     'ecl-range': '日陰の時間は、日照の周期より短くしてください',
     'idle-above-peak': '待機電力はピーク電力以下にしてください',
     'no-source': '電源を1つ以上選んでください',
-    'auto-needs-no-sun': '熱出力の自動決定は、日照中の電源が「なし」のときだけ使えます。熱出力を指定してください',
+    'auto-needs-no-sun': '熱出力の自動決定は、太陽光由来の電源が「なし」のときだけ使えます。熱出力を指定してください',
+    'auto-both': '光の量と原子炉の熱出力は、同時には自動で決められません。どちらかを指定してください',
+    'light-auto-needs-no-sun': '光の量の自動決定は、太陽光由来の電源が「なし」のとき（または受け取る時間帯が「日陰中のみ」のとき）だけ使えます',
+    'light-auto-geom': '光の量を自動で決めるときは、到達放射照度か受光面の直径の一方を入れてください（受光面の決め方を変えてください）',
+    positive: '正の値を入力してください',
+    range: '範囲内の値を入力してください',
+    'ecl-only-no-ecl': '日陰がない場所なので、「日陰中のみ」の受電は使われません',
+    'rx-overheat': '受光パネルの中心が許容温度を超えます。光を弱くする（受光面を大きくする）か、「冷却する」を選んでください',
+    'rx-spread': '熱を広げれば（ヒートパイプなど）、受光パネル自身で捨てられる量です',
+    'rx-band': '光の波長が、受光パネルの種類に合っていません（効率の目安が使えません）',
+    'rx-too-long': 'この波長の光は、太陽電池では電気に変えられません（熱として受けて発電する方法は扱いません）',
     'no-sun': '日照がないため、太陽光では発電・加熱できません',
     'cold-above-hot': '低温側の温度は、高温側の温度より低くしてください',
     'tmax-below-tmin': '最高温度は、最低温度より高くしてください',
     'tmin-below-cold': '蓄熱体の最低温度は、蓄熱体用の熱機関の低温側の温度より高くしてください',
     'tmax-above-reactor': '原子炉の熱で直接ためる場合、最高温度は原子炉の出口温度から熱交換の温度差を引いた値以下にしてください',
     'melt-range': '融解の温度は、最低温度と最高温度の間にしてください',
-    insufficient: '日照中の電力が足りません。日照中の電源を選ぶか、原子炉の熱出力や外部電源の電力を増やしてください',
+    insufficient: '日照中の電力が足りません。太陽光由来の電源を選ぶか、原子炉の熱出力や外部電源の電力を増やしてください',
     'cannot-reject': 'この温度では、環境へ熱を捨てられません（ヒートポンプなどの能動冷却が必要です）',
     'reverse-flux': '放射（または対流）では、ラジエータが逆に熱を受け取っています',
     'weak-sun': '日射が非常に弱いため、太陽電池が非常に大きくなります',
@@ -1261,7 +1529,8 @@ export function toPowerInputs(i: Inputs): PowerInputs {
     DoD: num('DoD'),
     sun_source: String(i.sun_source) as SunSource,
     reactor: String(i.reactor) as ReactorMode,
-    beam: String(i.beam) as BeamMode,
+    wire: String(i.wire) as SupplyMode,
+    light: String(i.light) as SupplyMode,
     night_buffer: String(i.night_buffer) as NightBuffer,
     eta_pv: num('eta_pv'),
     f_deg: num('f_deg'),
@@ -1276,7 +1545,21 @@ export function toPowerInputs(i: Inputs): PowerInputs {
     eta_conc: num('eta_conc'),
     rho_conc: num('rho_conc'),
     T_hot_s: num('T_hot_s'),
-    P_beam: num('P_beam'),
+    P_wire: num('P_wire'),
+    light_auto: Boolean(i.light_auto),
+    rx_geom: String(i.rx_geom) as RxGeom,
+    P_light: num('P_light'),
+    E_light: num('E_light'),
+    D_rx: num('D_rx'),
+    k_peak: num('k_peak'),
+    rx_type: String(i.rx_type),
+    lambda_light: num('lambda_light'),
+    eta_rx: num('eta_rx'),
+    rho_rx: num('rho_rx'),
+    T_rx_max: num('T_rx_max'),
+    eps_rx_f: num('eps_rx_f'),
+    eps_rx_b: num('eps_rx_b'),
+    rx_cool: Boolean(i.rx_cool),
     eng_r: engineOf(i, 'r'),
     eng_s: engineOf(i, 's'),
     eng_tes: engineOf(i, 'tes'),

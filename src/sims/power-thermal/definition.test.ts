@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultInputs, enumDisplayValue, evaluate, selectEnum } from '../../core/evaluate.ts'
+import { defaultInputs, enumDisplayValue, evaluate, paramRole, selectEnum } from '../../core/evaluate.ts'
 import { xCandidates, yCandidates } from '../../core/sweep.ts'
 import type { EnumParam, Inputs } from '../types.ts'
 import { powerThermal } from './definition.ts'
@@ -70,7 +70,7 @@ describe('プリセットと「カスタム」の表示', () => {
     expect(enumDisplayValue(enumParam('tes_medium'), i)).toBe('regolith')
   })
 
-  it('熱出力の自動決定は、日照中の電源が「なし」のときだけ選べる', () => {
+  it('熱出力の自動決定は、太陽光由来の電源が「なし」のときだけ選べる', () => {
     const auto = enumParam('reactor').options.find((o) => o.value === 'auto')!
     const i = defaultInputs(powerThermal)
     expect(auto.disabledWhen!(i)).toBe(true)
@@ -97,5 +97,43 @@ describe('構成の例（§3.10）', () => {
     expect(r.outputs.A_rad_r_by).toEqual({ kind: 'text', value: '日照中で決まる' })
     expect(enumDisplayValue(enumParam('scenario'), i)).toBe('t12')
     expect(enumDisplayValue(enumParam('scenario'), { ...i, Q_r: 50e3 })).toBe('custom')
+  })
+})
+
+describe('受電（§3.5、§3.6 (d)(e)）', () => {
+  it('3.5までの「外部電源」で保存したデータは、送電線で受電として読み込む', () => {
+    const m = powerThermal.migrate!({ beam: 'always', P_beam: 10e3, P_peak: 20e3 }, 1)
+    expect(m).toMatchObject({ wire: 'always', P_wire: 10e3, light: 'none', P_peak: 20e3 })
+    expect(m).not.toHaveProperty('beam')
+    expect(m).not.toHaveProperty('P_beam')
+    expect(powerThermal.migrate!({ beam: 'none', P_beam: 0 }, 1)).toMatchObject({ wire: 'none', light: 'none' })
+  })
+
+  it('移行したデータは、3.5と同じ結果になる（T23）', () => {
+    const i = { ...defaultInputs(powerThermal), ...powerThermal.migrate!({ beam: 'always', P_beam: 4e3 }, 1) }
+    const r = evaluate(powerThermal, i)
+    expect(r.errors).toEqual([])
+    expect(num(r, 'P_beam_sun')).toBe(4e3)
+  })
+
+  it('受光面の決め方で、光の合計・到達放射照度・受光面の直径のどれが計算結果になるかが変わる', () => {
+    const role = (key: string, over: Inputs) => paramRole(powerThermal.inputs.find((p) => p.key === key)!, { ...defaultInputs(powerThermal), light: 'always', ...over })
+    expect(role('D_rx', { rx_geom: 'P_E' })).toBe('output')
+    expect(role('E_light', { rx_geom: 'P_D' })).toBe('output')
+    expect(role('P_light', { rx_geom: 'E_D' })).toBe('output')
+    expect(role('P_light', { light_auto: true })).toBe('output')
+    expect(role('P_light', {})).toBe('input')
+  })
+
+  it('受光パネルの種類を選ぶと変換効率が入り、効率を変えるとカスタムになる', () => {
+    const i = pick(defaultInputs(powerThermal), 'rx_type', 'gaas')
+    expect(i.eta_rx).toBe(0.5)
+    expect(enumDisplayValue(enumParam('rx_type'), { ...i, eta_rx: 0.6 })).toBe('custom')
+  })
+
+  it('光の量を自動で決めるときは、原子炉の自動と、到達放射照度と直径からの決め方を選べない', () => {
+    const i = { ...defaultInputs(powerThermal), sun_source: 'none', light: 'ecl_only', light_auto: true }
+    expect(enumParam('reactor').options.find((o) => o.value === 'auto')!.disabledWhen!(i)).toBe(true)
+    expect(enumParam('rx_geom').options.find((o) => o.value === 'E_D')!.disabledWhen!(i)).toBe(true)
   })
 })

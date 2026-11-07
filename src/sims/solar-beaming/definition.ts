@@ -200,7 +200,7 @@ export const solarBeaming: SimDefinition = {
     { key: 'E_target', kind: 'number', label: '到達放射照度（スポット平均）', symbol: 'E_{target}', unit: unitDefs.irradiance, primary: true },
     { key: 'suns', kind: 'number', label: '太陽定数比', symbol: '\\mathrm{Suns}', unit: fixedUnit('suns'), primary: true },
     { key: 'D_spot', kind: 'number', label: 'スポット直径', symbol: 'D_{spot}', unit: unitDefs.length, primary: true },
-    { key: 'P_spot', kind: 'number', label: 'スポットに届く総電力', symbol: 'P_{spot}', unit: unitDefs.power },
+    { key: 'P_spot', kind: 'number', label: 'スポットに届く光の合計', symbol: 'P_{spot}', unit: unitDefs.power },
     { key: 'A_spot', kind: 'number', label: 'スポット面積', symbol: 'A_{spot}', unit: unitDefs.area },
     { key: 'theta_eff', kind: 'number', label: '実効スポット角', symbol: '\\theta_{eff}', unit: unitDefs.angleSmall },
     { key: 'cos_theta_i', kind: 'number', label: 'コサイン効率', symbol: '\\cos\\theta_i', unit: unitDefs.none },

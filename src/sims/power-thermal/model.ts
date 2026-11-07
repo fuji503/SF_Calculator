@@ -7,7 +7,11 @@ import type { Message } from '../types.ts'
 
 export type SunSource = 'none' | 'pv' | 'solar_thermal'
 export type ReactorMode = 'none' | 'auto' | 'fixed'
-export type BeamMode = 'none' | 'always' | 'sun_only'
+/** 受電の時間帯（§3.5） */
+export type SupplyMode = 'none' | 'always' | 'sun_only' | 'ecl_only'
+/** 受光面の決め方：光の合計と到達放射照度／光の合計と受光面の直径／到達放射照度と受光面の直径（§3.6 (e)） */
+export type RxGeom = 'P_E' | 'P_D' | 'E_D'
+export type RxType = 'solar' | 'gaas' | 'ingaas' | 'ingaasp' | 'custom'
 export type NightBuffer = 'battery' | 'tes'
 export type PayloadDesign = 'peak' | 'average'
 export type TesCharge = 'heater' | 'solar_furnace'
@@ -111,6 +115,17 @@ export const TES_INSULATION_PRESETS: Record<'ideal' | 'large_tank' | 'lunar_buri
   simple: 0.05,
 }
 
+/** 受光パネルの種類（§3.6 (e)）。band は合う光の波長の範囲 [m]（太陽光用とカスタムは確かめない） */
+export const RX_PRESETS: Record<Exclude<RxType, 'custom'>, { eta: number; band?: [number, number] }> = {
+  solar: { eta: 0.3 },
+  gaas: { eta: 0.5, band: [0.78e-6, 0.87e-6] },
+  ingaas: { eta: 0.4, band: [0.9e-6, 1.2e-6] },
+  ingaasp: { eta: 0.4, band: [1.4e-6, 1.7e-6] },
+}
+
+/** これより長い波長の光は、太陽電池では電気に変えられない [m] */
+export const PV_MAX_WAVELENGTH = 2e-6
+
 /** 排熱バッファの蓄熱材（液体の水） */
 export const WATER_BUFFER = { c_buf: 4180, dT_buf: 10, L_buf: 0, rho_buf: 1000 }
 
@@ -158,7 +173,8 @@ export interface PowerInputs {
   // §3.5 構成
   sun_source: SunSource
   reactor: ReactorMode
-  beam: BeamMode
+  wire: SupplyMode
+  light: SupplyMode
   night_buffer: NightBuffer
   // §3.6 電源
   eta_pv: number
@@ -174,7 +190,25 @@ export interface PowerInputs {
   eta_conc: number
   rho_conc: number
   T_hot_s: number
-  P_beam: number
+  // §3.6 (d) 送電線で受電
+  P_wire: number
+  // §3.6 (e) 光で受電
+  /** true なら、受け取る光の量を不足分から自動で決める */
+  light_auto: boolean
+  rx_geom: RxGeom
+  P_light: number
+  E_light: number
+  D_rx: number
+  k_peak: number
+  rx_type: string
+  lambda_light: number
+  eta_rx: number
+  rho_rx: number
+  T_rx_max: number
+  eps_rx_f: number
+  eps_rx_b: number
+  /** true なら、許容温度を超える分をラジエータで冷やす */
+  rx_cool: boolean
   // §3.7 熱機関
   eng_r: Engine
   eng_s: Engine
@@ -202,7 +236,7 @@ export interface PowerInputs {
   eta_fin: number
 }
 
-export type RadiatorId = 'r' | 's' | 'tes' | 'pl'
+export type RadiatorId = 'r' | 's' | 'tes' | 'pl' | 'rx'
 
 export interface RadiatorResult {
   /** 面積（パネルの片面の面積） */
@@ -235,6 +269,18 @@ export interface PowerOutputs {
   carnot_r: number
   P_c_sun: number
   P_c_ecl: number
+  // 受電
+  P_beam_sun: number
+  P_beam_ecl: number
+  P_lt: number
+  P_light: number
+  E_light: number
+  D_rx: number
+  A_rx: number
+  Q_rx: number
+  T_rx_avg: number
+  T_rx_peak: number
+  Q_cool: number
   // 日陰中のバッファ
   E_bn: number
   E_shave: number
@@ -251,7 +297,7 @@ export interface PowerOutputs {
   A_sf: number
   Q_tes_max: number
   eta_rt: number
-  // 日照中の電源
+  // 太陽光由来の電源
   P_gen: number
   P_surplus: number
   A_pv: number
@@ -311,6 +357,24 @@ export function tesWork(p: PowerInputs): { w: number; e: number } {
   return { w: p.eng_tes.eta_mech * (sensible + latent), e }
 }
 
+/** 受光パネル 1 m² あたりの放熱（§4.10）。表と裏から放射し、両面から対流で冷える */
+export function receiverFlux(p: PowerInputs, T: number, T_sk: number): number {
+  return (p.eps_rx_f + p.eps_rx_b) * SIGMA_SB * (T ** 4 - T_sk ** 4) + 2 * p.h_c * (T - p.T_env)
+}
+
+/** 受け取る熱 q_in とつり合う受光パネルの温度（二分法） */
+export function receiverTemperature(p: PowerInputs, q_in: number, T_sk: number): number {
+  let lo = 0
+  let hi = Math.max(T_sk, p.T_env, 300)
+  while (receiverFlux(p, hi, T_sk) < q_in) hi *= 2
+  for (let n = 0; n < 100; n++) {
+    const mid = (lo + hi) / 2
+    if (receiverFlux(p, mid, T_sk) < q_in) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
 /** 負荷のサイクルを日陰の最悪の場合（ピークの始まりと重なる）で数える（§4.2） */
 function eclipseSum(p: PowerInputs, f: (P: number) => number): number {
   const T_load = p.t_peak + p.t_idle
@@ -332,8 +396,16 @@ export function computePower(p: PowerInputs): PowerResult {
 
   const hasSun = p.sun_source !== 'none'
   const useReactor = p.reactor !== 'none'
-  const useBeam = p.beam !== 'none'
+  const useWire = p.wire !== 'none'
+  const useLight = p.light !== 'none'
   const hasEcl = p.t_ecl > 0
+  const inSun = (m: SupplyMode) => m === 'always' || m === 'sun_only'
+  const inEcl = (m: SupplyMode) => hasEcl && (m === 'always' || m === 'ecl_only')
+  const lightAuto = useLight && p.light_auto
+  // 光で受電で、入力として使う値（受光面の決め方と、自動かどうかで変わる）
+  const givenP = useLight && !lightAuto && p.rx_geom !== 'E_D'
+  const givenE = useLight && p.rx_geom !== 'P_D'
+  const givenD = useLight && p.rx_geom !== 'P_E'
   const tes = p.night_buffer === 'tes' && hasEcl
   const furnace = tes && p.tes_charge === 'solar_furnace'
   const solarThermal = p.sun_source === 'solar_thermal'
@@ -341,7 +413,18 @@ export function computePower(p: PowerInputs): PowerResult {
   // ---- 入力の組み合わせのチェック（§6）
   if (p.t_ecl >= p.T_cyc) err('ecl-range', ['t_ecl'])
   if (p.P_idle > p.P_peak) err('idle-above-peak', ['P_idle'])
-  if (!hasSun && !useReactor && !useBeam) err('no-source', ['sun_source'])
+  if (!hasSun && !useReactor && !useWire && !useLight) err('no-source', ['sun_source'])
+  if (lightAuto && p.reactor === 'auto') err('auto-both', ['light_auto', 'reactor'])
+  if (lightAuto && inSun(p.light) && hasSun) err('light-auto-needs-no-sun', ['light_auto'])
+  if (lightAuto && p.rx_geom === 'E_D') err('light-auto-geom', ['rx_geom'])
+  if (useLight) {
+    if (givenP && !(p.P_light > 0)) err('positive', ['P_light'])
+    if (givenE && !(p.E_light > 0)) err('positive', ['E_light'])
+    if (givenD && !(p.D_rx > 0)) err('positive', ['D_rx'])
+    if (!(p.eta_rx > 0 && p.eta_rx <= 1)) err('range', ['eta_rx'])
+    if (!(p.k_peak >= 1)) err('range', ['k_peak'])
+    if (!(p.eps_rx_f + p.eps_rx_b > 0)) err('range', ['eps_rx_f', 'eps_rx_b'])
+  }
   if (p.reactor === 'auto' && hasSun) err('auto-needs-no-sun', ['reactor'])
   if ((hasSun || furnace) && p.I_sun <= 0) err('no-sun', ['I_sun'])
   if (useReactor && p.eng_r.T_cold >= p.T_hot_r) err('cold-above-hot', ['T_cold_r'])
@@ -372,16 +455,31 @@ export function computePower(p: PowerInputs): PowerResult {
   const E_ecl = hasEcl ? eclipseSum(p, (P) => P) : 0
 
   // ---- §4.3 一定の出力を出す電源
-  const P_beam_sun = useBeam ? p.P_beam : 0
-  const P_beam_ecl = p.beam === 'always' ? p.P_beam : 0
+  // §4.10 受光面の大きさ（自動のときの光の合計は、あとで決める）
+  let A_rx = 0
+  if (useLight) A_rx = p.rx_geom === 'P_E' ? (lightAuto ? 0 : p.P_light / p.E_light) : (Math.PI / 4) * p.D_rx ** 2
+  let P_light = useLight && !lightAuto ? (p.rx_geom === 'E_D' ? p.E_light * A_rx : p.P_light) : 0
+  let P_lt = p.eta_rx * P_light
+  // 受電電力（光の量を自動で決めるときは、光を除いた値）
+  const supply = (m: SupplyMode, P: number) => ({ sun: inSun(m) ? P : 0, ecl: inEcl(m) ? P : 0 })
+  const wire = supply(p.wire, useWire ? p.P_wire : 0)
+  const fixedLight = supply(p.light, P_lt)
+  let P_beam_sun = wire.sun + fixedLight.sun
+  let P_beam_ecl = wire.ecl + fixedLight.ecl
+  for (const [m, key] of [[p.wire, 'wire'], [p.light, 'light']] as const) {
+    if (m === 'ecl_only' && !hasEcl) info('ecl-only-no-ecl', [key])
+  }
   const carnot_r = useReactor ? 1 - p.eng_r.T_cold / p.T_hot_r : 0
   const eta_r = useReactor ? engineEfficiency(p.eng_r, p.T_hot_r) : 0
   let Q_r = 0
   if (p.reactor === 'fixed') Q_r = p.Q_r
-  else if (p.reactor === 'auto') Q_r = Math.max(0, P_base - (hasEcl ? P_beam_ecl : P_beam_sun)) / eta_r
+  else if (p.reactor === 'auto') Q_r = Math.max(0, P_base - (hasEcl ? Math.min(P_beam_sun, P_beam_ecl) : P_beam_sun)) / eta_r
   const P_r = eta_r * Q_r
-  const P_c_sun = (1 - f_store) * P_r + P_beam_sun
-  const P_c_ecl = P_r + P_beam_ecl
+  let P_c_sun = (1 - f_store) * P_r + P_beam_sun
+  let P_c_ecl = P_r + P_beam_ecl
+  // 光の量を自動で決める：まず日陰中の不足分（日照中の分は、日陰中のバッファを決めたあと）
+  const P_lt_ecl = lightAuto && inEcl(p.light) ? Math.max(0, P_base - P_c_ecl) : 0
+  P_c_ecl += P_lt_ecl
 
   // ---- §4.4 日陰中のバッファ
   let E_bn = 0
@@ -432,7 +530,63 @@ export function computePower(p: PowerInputs): PowerResult {
     info('tes-unneeded')
   }
 
-  // ---- §4.5 日照中の電源
+  // 光の量を自動で決める：日照中の不足分（日陰中のバッファの充電・加熱も光で受け持つ）
+  if (lightAuto) {
+    const P_lt_sun = inSun(p.light) ? Math.max(0, P_base - P_c_sun + P_chg) : 0
+    P_lt = Math.max(P_lt_sun, P_lt_ecl)
+    P_light = P_lt / p.eta_rx
+    if (inSun(p.light)) {
+      P_c_sun += P_lt
+      P_beam_sun += P_lt
+    }
+    // 常時では、日陰中も同じ量を受け取る（少ないほうの時間帯では余る）
+    if (inEcl(p.light)) {
+      P_c_ecl += P_lt - P_lt_ecl
+      P_beam_ecl += P_lt
+    }
+    if (p.rx_geom === 'P_E') A_rx = P_light / p.E_light
+  }
+
+  // ---- §4.10 受光パネルの温度と冷却
+  let E_light = 0
+  let D_rx = 0
+  let Q_rx = 0
+  let T_rx_avg = 0
+  let T_rx_peak = 0
+  let Q_cool_sun = 0
+  let Q_cool_ecl = 0
+  if (useLight) {
+    E_light = A_rx > 0 ? P_light / A_rx : p.E_light
+    D_rx = Math.sqrt((4 * A_rx) / Math.PI)
+    Q_rx = (1 - p.eta_rx) * P_light
+    const q_in = (1 - p.eta_rx) * E_light
+    // 受け取る時間帯のうち、温度が高くなるほう（受け取らない場合は日照中のシンク温度で見る）
+    const windows = [
+      { id: 'sun' as const, on: inSun(p.light), T_sk: p.T_sink },
+      { id: 'ecl' as const, on: inEcl(p.light), T_sk: p.T_sink_ecl },
+    ].filter((w) => w.on)
+    const sinks = windows.length > 0 ? windows.map((w) => w.T_sk) : [p.T_sink]
+    T_rx_avg = Math.max(...sinks.map((T_sk) => receiverTemperature(p, q_in, T_sk)))
+    T_rx_peak = Math.max(...sinks.map((T_sk) => receiverTemperature(p, p.k_peak * q_in, T_sk)))
+    if (T_rx_peak > p.T_rx_max) {
+      if (!p.rx_cool) warn('rx-overheat', ['T_rx_max'])
+      else {
+        for (const w of windows) {
+          const Q = A_rx * Math.max(0, q_in - receiverFlux(p, p.T_rx_max, w.T_sk))
+          if (w.id === 'sun') Q_cool_sun = Q
+          else Q_cool_ecl = Q
+        }
+        if (Q_cool_sun === 0 && Q_cool_ecl === 0) info('rx-spread', ['T_rx_max'])
+      }
+    }
+    if (p.rx_type !== 'solar') {
+      const band = RX_PRESETS[p.rx_type as Exclude<RxType, 'custom'>]?.band
+      if (p.lambda_light > PV_MAX_WAVELENGTH) warn('rx-too-long', ['lambda_light'])
+      else if (band && (p.lambda_light < band[0] || p.lambda_light > band[1])) warn('rx-band', ['lambda_light', 'rx_type'])
+    }
+  }
+
+  // ---- §4.5 太陽光由来の電源
   let P_gen = P_base - P_c_sun + P_chg
   let P_surplus = 0
   // 自動で決めた原子炉で、丸めの誤差だけ足りない場合は 0 とみなす
@@ -502,6 +656,7 @@ export function computePower(p: PowerInputs): PowerResult {
   if (solarThermal) radiator('s', p.eng_s.T_cold, Q_rej_s, 0, 'T_cold_s')
   if (tes) radiator('tes', p.eng_tes.T_cold, 0, Q_rej_tes, 'T_cold_tes')
   radiator('pl', p.T_payload, Q_pl, Q_pl, 'T_payload')
+  radiator('rx', p.T_rx_max, Q_cool_sun, Q_cool_ecl, 'T_rx_max')
   if (errors.length > 0) return { outputs: null, warnings: dedupe(warnings), errors }
   const A_rad = Object.values(radiators).reduce((s, r) => s + r.A, 0)
   const M_rad = A_rad * p.rho_rad
@@ -521,6 +676,7 @@ export function computePower(p: PowerInputs): PowerResult {
   // ---- §4.9 総質量
   const masses: MassItem[] = [
     { key: 'M_pv', label: '太陽電池', mass: A_pv * p.rho_pv, origin: 'earth' },
+    { key: 'M_rx', label: '受光パネル', mass: A_rx * p.rho_rx, origin: 'earth' },
     { key: 'M_conc', label: '集光鏡（発電用）', mass: A_conc * p.rho_conc, origin: 'earth' },
     { key: 'M_reactor', label: '原子炉', mass: p.alpha_r * Q_r, origin: 'earth' },
     { key: 'M_shield', label: '遮蔽', mass: p.shield_include ? p.alpha_s * Q_r : 0, origin: 'earth' },
@@ -552,6 +708,17 @@ export function computePower(p: PowerInputs): PowerResult {
       carnot_r,
       P_c_sun,
       P_c_ecl,
+      P_beam_sun,
+      P_beam_ecl,
+      P_lt,
+      P_light,
+      E_light,
+      D_rx,
+      A_rx,
+      Q_rx,
+      T_rx_avg,
+      T_rx_peak,
+      Q_cool: Math.max(Q_cool_sun, Q_cool_ecl),
       E_bn,
       E_shave,
       P_chg,

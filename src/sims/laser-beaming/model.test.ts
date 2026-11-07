@@ -213,6 +213,7 @@ describe('受光面に入る割合（§4.7）', () => {
     expect4(o.P_rx, 8.647e5)
     expect4(o.E_peak, 2553)
     expect4(o.E_peak / o.E_target, 2.313)
+    expect4(o.k_peak, 2.313)
   })
 
   it('受光面を大きくするほど多く拾えるが、平均の強さは下がる', () => {

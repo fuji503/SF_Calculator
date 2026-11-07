@@ -63,7 +63,8 @@ function base(loc: LocationId, over: Partial<PowerInputs> = {}): PowerInputs {
     DoD: 0.8,
     sun_source: 'pv',
     reactor: 'none',
-    beam: 'none',
+    wire: 'none',
+    light: 'none',
     night_buffer: 'battery',
     eta_pv: 0.3,
     f_deg: 0.85,
@@ -78,7 +79,21 @@ function base(loc: LocationId, over: Partial<PowerInputs> = {}): PowerInputs {
     eta_conc: 0.85,
     rho_conc: 2,
     T_hot_s: 1100,
-    P_beam: 0,
+    P_wire: 0,
+    light_auto: false,
+    rx_geom: 'P_E',
+    P_light: 1e6,
+    E_light: 1104,
+    D_rx: 30,
+    k_peak: 1,
+    rx_type: 'ingaas',
+    lambda_light: 1.07e-6,
+    eta_rx: 0.4,
+    rho_rx: 2,
+    T_rx_max: 373,
+    eps_rx_f: 0.85,
+    eps_rx_b: 0.85,
+    rx_cool: false,
     eng_r: engine('stirling'),
     eng_s: engine('brayton_hexe'),
     eng_tes: engine('brayton_hexe'),
@@ -111,7 +126,7 @@ const constant = (P: number, Q_pl: number | 'same' = 'same'): Partial<PowerInput
   ...(Q_pl === 'same' ? { Q_pl_same: true } : { Q_pl_same: false, Q_pl_peak: Q_pl, Q_pl_idle: Q_pl }),
 })
 
-/** 日照中の電源なし＋原子炉（熱出力を自動で決める） */
+/** 太陽光由来の電源なし＋原子炉（熱出力を自動で決める） */
 const autoReactor = (cls: ReactorClass, over: Partial<PowerInputs> = {}): Partial<PowerInputs> => {
   const r = REACTOR_PRESETS[cls]
   return {
@@ -411,12 +426,12 @@ describe('物理的な性質', () => {
 
   it('常時の外部電源があると、日陰中に蓄電池から出す量が減る', () => {
     const a = outputsOf(base('lunar', constant(10 * KW)))
-    const b = outputsOf(base('lunar', { ...constant(10 * KW), beam: 'always', P_beam: 4 * KW }))
+    const b = outputsOf(base('lunar', { ...constant(10 * KW), wire: 'always', P_wire: 4 * KW }))
     expect(b.E_bn).toBeCloseTo(a.E_bn * 0.6, 0)
   })
 
   it('ほかの電源だけで足りるときは余りを出す', () => {
-    const r = computePower(base('deep_space', { ...constant(10 * KW, 0), beam: 'always', P_beam: 15 * KW }))
+    const r = computePower(base('deep_space', { ...constant(10 * KW, 0), wire: 'always', P_wire: 15 * KW }))
     expect(r.outputs!.P_gen).toBe(0)
     expect(r.outputs!.P_surplus).toBeCloseTo(5 * KW, 6)
     expect(r.warnings.map((m) => m.code)).toContain('surplus')
@@ -464,6 +479,103 @@ describe('入力チェック（§6）', () => {
     expect(codes('lunar', constant(10 * KW))).not.toContain('dod-cycles')
     // 月面の昼（T_sink 300 K）に 290 K のラジエータは、放射では熱を受け取るが対流で捨てられる
     expect(codes('lunar', { T_payload: 295, h_c: 50, T_env: 200 })).toContain('reverse-flux')
+  })
+})
+
+describe('受電（§9 T18〜T22）', () => {
+  // 深宇宙、太陽光由来の電源なし、光で受電（常時、光の合計を指定）、負荷は一定 400 kW、排熱 0
+  const laser = (over: Partial<PowerInputs> = {}): PowerInputs =>
+    base('deep_space', { ...constant(400 * KW, 0), sun_source: 'none', light: 'always', k_peak: 2.313, ...over })
+
+  it('T18：レーザから受電すると、受光パネルの面積・質量・温度が出る', () => {
+    const o = outputsOf(laser())
+    expect4(o.P_lt, 400 * KW)
+    expect4(o.A_rx, 905.8)
+    expect4(o.D_rx, 33.96)
+    expect4(mass(o, 'M_rx'), 1812)
+    expect4(o.Q_rx, 600 * KW)
+    expect4(o.T_rx_avg, 287.9)
+    expect4(o.T_rx_peak, 355.1)
+    expect(o.P_gen).toBe(0)
+    expect(o.Q_cool).toBe(0)
+  })
+
+  it('T19：月の夜だけ、不足分を自動で受電する', () => {
+    const o = outputsOf(base('lunar', { ...constant(20 * KW, 0), light: 'ecl_only', light_auto: true }))
+    expect4(o.P_lt, 20 * KW)
+    expect4(o.P_light, 50 * KW)
+    expect4(o.A_rx, 45.29)
+    expect4(mass(o, 'M_rx'), 90.58)
+    expect(o.E_bn).toBeCloseTo(0, 6)
+    expect(o.C_bat).toBeCloseTo(0, 6)
+    expect4(o.P_gen, 20 * KW)
+    expect4(o.A_pv, 57.63)
+    expect4(o.T_rx_avg, 289.0)
+  })
+
+  it('T20：強い光を受けると、捨てきれない熱をラジエータで冷やす', () => {
+    const p = laser({ E_light: 2e4, k_peak: 1, rx_cool: true })
+    const o = outputsOf(p)
+    expect4(o.A_rx, 50)
+    expect4(o.T_rx_avg, 594.0)
+    expect4(o.Q_cool, 506.7 * KW)
+    expect4(o.radiators.rx!.A, 285.0)
+    expect4(o.radiators.rx!.A * 5, 1425)
+    // 冷却しないときは警告
+    expect(computePower(laser({ E_light: 2e4, k_peak: 1 })).warnings.map((m) => m.code)).toContain('rx-overheat')
+  })
+
+  it('T21：光の合計と受光面の直径から、到達放射照度を出す', () => {
+    const o = outputsOf(laser({ rx_geom: 'P_D', D_rx: 47.38 }))
+    expect4(o.A_rx, 1763)
+    expect4(o.E_light, 567.2)
+  })
+
+  it('到達放射照度と受光面の直径から、光の合計を出す', () => {
+    const o = outputsOf(laser({ rx_geom: 'E_D', E_light: 567.18, D_rx: 47.38 }))
+    expect4(o.P_light, 1e6)
+  })
+
+  it('T22：送電線と光を同時に使う', () => {
+    const o = outputsOf(base('lunar', { ...constant(20 * KW, 0), wire: 'always', P_wire: 5 * KW, light: 'ecl_only', light_auto: true }))
+    expect4(o.P_beam_sun, 5 * KW)
+    expect4(o.P_lt, 15 * KW)
+    expect4(o.P_light, 37.5 * KW)
+    expect4(o.P_beam_ecl, 20 * KW)
+    expect4(o.P_gen, 15 * KW)
+  })
+
+  it('常時の自動では、日照中と日陰中の不足分の大きいほうを受け取る', () => {
+    const o = outputsOf(base('lunar', { ...constant(20 * KW, 0), sun_source: 'none', light: 'always', light_auto: true, wire: 'sun_only', P_wire: 5 * KW }))
+    expect4(o.P_lt, 20 * KW)
+    expect4(o.P_surplus, 5 * KW)
+  })
+
+  it('日照中のみの自動では、夜に備える充電の分も光で受け持つ', () => {
+    const o = outputsOf(base('lunar', { ...constant(20 * KW, 0), sun_source: 'none', light: 'sun_only', light_auto: true }))
+    expect(o.E_bn).toBeGreaterThan(0)
+    expect4(o.P_lt, 20 * KW + o.P_chg)
+    expect(o.P_gen).toBe(0)
+  })
+
+  it('受電の入力チェック', () => {
+    const codes = (over: Partial<PowerInputs>, loc: LocationId = 'lunar') => {
+      const r = computePower(base(loc, { ...constant(20 * KW, 0), ...over }))
+      return [...r.errors, ...r.warnings].map((m) => m.code)
+    }
+    expect(codes({ sun_source: 'none', reactor: 'auto', light: 'ecl_only', light_auto: true })).toContain('auto-both')
+    expect(codes({ light: 'always', light_auto: true })).toContain('light-auto-needs-no-sun')
+    expect(codes({ light: 'ecl_only', light_auto: true })).not.toContain('light-auto-needs-no-sun')
+    expect(codes({ light: 'ecl_only', light_auto: true, rx_geom: 'E_D' })).toContain('light-auto-geom')
+    expect(codes({ light: 'always', eta_rx: 1.2 })).toContain('range')
+    expect(codes({ light: 'always', k_peak: 0.5 })).toContain('range')
+    expect(codes({ light: 'always', P_light: 0 })).toContain('positive')
+    // 光の合計が計算結果になる決め方では、光の合計の入力を見ない
+    expect(codes({ light: 'always', P_light: 0, rx_geom: 'E_D' })).not.toContain('positive')
+    expect(codes({ wire: 'ecl_only', P_wire: 1 * KW }, 'deep_space')).toContain('ecl-only-no-ecl')
+    expect(codes({ light: 'always', lambda_light: 1.55e-6 })).toContain('rx-band')
+    expect(codes({ light: 'always', lambda_light: 10.6e-6 })).toContain('rx-too-long')
+    expect(codes({ light: 'always', rx_type: 'solar', lambda_light: 10.6e-6 })).not.toContain('rx-too-long')
   })
 })
 

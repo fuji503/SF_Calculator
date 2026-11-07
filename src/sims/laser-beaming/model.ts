@@ -73,6 +73,8 @@ export interface LaserOutputs {
   A_rx: number
   /** スポット中心の到達放射照度 */
   E_peak: number
+  /** 中心の強さ（受光面の平均の何倍か） */
+  k_peak: number
   lambda_out: number
   t_delay: number
   sun_ratio: number
@@ -223,6 +225,7 @@ export function computeLaser(p: LaserInputs): LaserResult {
       D_rx,
       A_rx,
       E_peak,
+      k_peak: E_peak / E_target,
       lambda_out: p.lambda,
       t_delay,
       sun_ratio: E_target / SOLAR_CONSTANT_1AU,
