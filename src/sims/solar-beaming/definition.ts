@@ -5,17 +5,79 @@ import { computeSolar, type AtmCase, type SolarInputs, type SolarOutputs } from 
 
 const DEG = Math.PI / 180
 const usesAtmosphere = (i: Inputs) => i.atm_case !== 'space'
+const solving = (i: Inputs) => Boolean(i.solve)
+const byIrradiance = (i: Inputs) => Boolean(i.goal_by_irradiance)
+const solvingD = (i: Inputs) => solving(i) && Boolean(i.solve_diameter)
+const solvingN = (i: Inputs) => solving(i) && !i.solve_diameter
 
 /** 太陽光集光・送光モジュール（仕様書3(検証版) §3、§5、§6） */
 export const solarBeaming: SimDefinition = {
   id: 'solar-beaming',
   version: 1,
   groups: [
+    { id: 'goal', label: '計算の向き' },
     { id: 'env', label: '環境・天体' },
     { id: 'mirror', label: '反射鏡（コンステレーション）' },
     { id: 'geometry', label: '送光の幾何' },
   ],
   inputs: [
+    {
+      kind: 'boolean',
+      key: 'solve',
+      group: 'goal',
+      label: '計算の向き',
+      description: '「届けたい量から逆算する」では、スポットに届けたい光の量から、必要な基数か鏡1枚の口径を求める',
+      default: false,
+      labels: ['条件から計算する', '届けたい量から逆算する'],
+    },
+    {
+      kind: 'boolean',
+      key: 'goal_by_irradiance',
+      group: 'goal',
+      label: '逆算の目標',
+      description:
+        'スポットに届く光の合計は、受けて使える光の量（電源・排熱の「光で受電」の元になる）。到達放射照度は、1 m² あたりの光の強さ。到達放射照度は、理論上の最大放射照度（1 AU で太陽の約4.6万倍）を超えられない',
+      default: false,
+      labels: ['スポットに届く光の合計から', '到達放射照度から'],
+      visibleWhen: solving,
+    },
+    {
+      kind: 'number',
+      key: 'P_goal',
+      group: 'goal',
+      label: 'スポットに届けたい光の合計',
+      symbol: 'P_{goal}',
+      description: '大気で減ったあと、スポットに届く光の合計。電源・排熱の「光で受電」を「不足分を自動で決める」にしたときの「受光面に入る光の合計」を写せる',
+      unit: { ...unitDefs.power, defaultId: 'MW' },
+      default: 1e6,
+      min: 0,
+      minExclusive: true,
+      visibleWhen: (i) => solving(i) && !byIrradiance(i),
+    },
+    {
+      kind: 'number',
+      key: 'E_goal',
+      group: 'goal',
+      label: '届けたい到達放射照度（単位面積あたり）',
+      symbol: 'E_{goal}',
+      description:
+        'スポット 1 m² あたりの平均の光の強さ。理論上の最大放射照度を超える値はエラーになる（鏡では光の明るさを上げられないため）。平面鏡で口径を決めるときは、口径を大きくするとスポットも広がるので、「基数 × 鏡 1 m² あたりの光」より強くできない',
+      unit: unitDefs.irradiance,
+      default: 1361,
+      min: 0,
+      minExclusive: true,
+      visibleWhen: (i) => solving(i) && byIrradiance(i),
+    },
+    {
+      kind: 'boolean',
+      key: 'solve_diameter',
+      group: 'goal',
+      label: '逆算で決めるもの',
+      description: '基数は、鏡1枚の口径を決めて、何基必要かを出す（端数は切り上げ、実際に届く量も出す）。鏡1枚の口径は、基数を決めて、鏡の大きさを出す',
+      default: false,
+      labels: ['基数', '鏡1枚の口径'],
+      visibleWhen: solving,
+    },
     {
       kind: 'number',
       key: 'd_sun',
@@ -109,11 +171,12 @@ export const solarBeaming: SimDefinition = {
       group: 'mirror',
       label: '鏡1枚の口径（直径）',
       symbol: 'D',
-      description: '円形の鏡とし、1枚の面積は πD²/4',
+      description: '円形の鏡とし、1枚の面積は πD²/4。逆算で「鏡1枚の口径」を決めるときは計算結果になる',
       unit: unitDefs.length,
       default: 100,
       min: 0,
       minExclusive: true,
+      role: (i) => (solvingD(i) ? 'output' : 'input'),
     },
     {
       kind: 'number',
@@ -121,10 +184,12 @@ export const solarBeaming: SimDefinition = {
       group: 'mirror',
       label: '基数',
       symbol: 'N',
+      description: '逆算で「基数」を決めるときは計算結果になる（端数は切り上げ）',
       unit: fixedUnit('基'),
       default: 1000,
       min: 1,
       integer: true,
+      role: (i) => (solvingN(i) ? 'output' : 'input'),
     },
     {
       kind: 'boolean',
@@ -197,7 +262,15 @@ export const solarBeaming: SimDefinition = {
     },
   ],
   outputs: [
-    { key: 'E_target', kind: 'number', label: '到達放射照度（スポット平均）', symbol: 'E_{target}', unit: unitDefs.irradiance, primary: true },
+    {
+      key: 'E_target',
+      kind: 'number',
+      label: '到達放射照度（単位面積あたり）',
+      symbol: 'E_{target}',
+      unit: unitDefs.irradiance,
+      primary: true,
+      description: 'スポット 1 m² あたりの平均の光の強さ',
+    },
     { key: 'suns', kind: 'number', label: '太陽定数比', symbol: '\\mathrm{Suns}', unit: fixedUnit('suns'), primary: true },
     { key: 'D_spot', kind: 'number', label: 'スポット直径', symbol: 'D_{spot}', unit: unitDefs.length, primary: true },
     { key: 'P_spot', kind: 'number', label: 'スポットに届く光の合計', symbol: 'P_{spot}', unit: unitDefs.power },
@@ -207,9 +280,25 @@ export const solarBeaming: SimDefinition = {
     { key: 'T_atm', kind: 'number', label: '大気透過率', symbol: 'T_{atm}', unit: unitDefs.none },
     { key: 'A_total', kind: 'number', label: '鏡の総面積', symbol: 'A_{total}', unit: unitDefs.area },
     { key: 'theta_sun', kind: 'number', label: '太陽の視直径', symbol: '\\theta_\\odot', unit: { ...unitDefs.angleSmall, defaultId: 'mrad' } },
-    { key: 'E_max', kind: 'number', label: '理論上の最大放射照度', symbol: 'E_{max}', unit: unitDefs.irradiance },
+    {
+      key: 'E_max',
+      kind: 'number',
+      label: '理論上の最大放射照度',
+      symbol: 'E_{max}',
+      unit: unitDefs.irradiance,
+      description: '鏡では光の明るさ（輝度）を上げられないので、鏡をどれだけ増やしてもこれより強くはならない',
+    },
+    {
+      key: 'N_exact',
+      kind: 'number',
+      label: '必要な基数（端数を切り上げる前）',
+      symbol: 'N_{exact}',
+      unit: fixedUnit('基'),
+      visibleWhen: solvingN,
+    },
   ],
   defaultGraph: { x: 'd', y: 'E_target' },
+  graphPreset: (i) => (solving(i) ? { x: 'd', y: solvingD(i) ? 'D' : 'N' } : { x: 'd', y: 'E_target' }),
   messages: {
     positive: '正の値を入力してください',
     'non-negative': '0 以上の値を入力してください',
@@ -221,6 +310,9 @@ export const solarBeaming: SimDefinition = {
     'too-close': '鏡が目標に近すぎるため、近似の精度が落ちます',
     'oblique-concave': '斜めに入射する凹面鏡では収差でスポットが広がりますが、この計算には含まれていません',
     'opaque-atmosphere': '大気でほとんどの光が失われています',
+    'no-light': 'スポットに光が届かないため、逆算できません（反射率・入射角・大気を見直してください）',
+    'goal-over-limit': '届けたい到達放射照度が、理論上の最大放射照度を超えています。鏡を増やしても届きません',
+    'flat-unreachable': '平面鏡では、口径を大きくしてもスポットも広がるので、この到達放射照度には届きません。基数を増やすか、凹面鏡にするか、基数を逆算してください',
   },
   compute(inputs: Inputs): ComputeResult {
     const r = computeSolar(toSolarInputs(inputs))
@@ -252,5 +344,10 @@ function toSolarInputs(i: Inputs): SolarInputs {
     sigma_point: num('sigma_point'),
     d: num('d'),
     theta_i: num('theta_i'),
+    solve: Boolean(i.solve),
+    goal_by_irradiance: Boolean(i.goal_by_irradiance),
+    solve_diameter: Boolean(i.solve_diameter),
+    P_goal: num('P_goal'),
+    E_goal: num('E_goal'),
   }
 }

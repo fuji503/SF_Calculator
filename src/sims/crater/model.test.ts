@@ -70,6 +70,13 @@ describe('クレータの大きさ（隕石、§4.2）', () => {
     expect4(o.M_seis, 5.266)
   })
 
+  it('掘られた土と噴出物の質量は、体積 × 地盤の密度', () => {
+    const p = meteor(90 * DEG)
+    const o = outputsOf(p)
+    expect(o.M_exc / (o.V * p.rho_t)).toBeCloseTo(1, 12)
+    expect(o.M_ej / (o.V_ej * p.rho_t)).toBeCloseTo(1, 12)
+  })
+
   it('T1b 45° では小さくなる', () => {
     expect4(outputsOf(meteor(45 * DEG)).D_rim, 1120)
   })

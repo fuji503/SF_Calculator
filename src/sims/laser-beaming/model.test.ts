@@ -21,6 +21,7 @@ function base(type: LaserType, over: Partial<LaserInputs> = {}): LaserInputs {
     E_chem: pre.E_chem ?? 10e6,
     f_exhaust: pre.f_exhaust ?? 0.9,
     k_aux: pre.k_aux ?? 0.05,
+    t_op: 3600,
     d_sun: 1,
     I_sun_auto: true,
     I_sun: 1361,
@@ -190,6 +191,7 @@ describe('届けたい量からの逆算（§4.6）', () => {
     const t4 = { lambda: 3.8e-6, M2: 2.0, D: 2, sigma_jitter: 0.2 * URAD, d: 1_000e3 }
     const inv = outputsOf(base('chemical', { ...t4, solve: true, P_goal: 1e6 * (1 - Math.exp(-2)) }))
     expect4(inv.m_dot!, 5)
+    expect4(inv.M_fuel!, 18_000)
     expect4(inv.E_target, 1.271e4)
   })
 

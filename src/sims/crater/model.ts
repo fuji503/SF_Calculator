@@ -103,6 +103,9 @@ export interface CraterOutputs {
   d_tc?: number
   V: number
   V_ej: number
+  /** 掘られた土の質量、噴出物の質量（体積 × 地盤の密度） */
+  M_exc: number
+  M_ej: number
   regime?: 'gravity' | 'strength'
   // 衝突体
   P_peak?: number
@@ -463,6 +466,8 @@ export function computeCrater(p: CraterInputs): CraterResult {
     h_rim: 0,
     V: 0,
     V_ej: 0,
+    M_exc: 0,
+    M_ej: 0,
     r_bury: 0,
     frags: [],
     seis_kind: 'M',
@@ -620,5 +625,7 @@ export function computeCrater(p: CraterInputs): CraterResult {
   if (p.body !== 'earth' && thermalEta > 0) info('no-thermal')
 
   info('approx')
+  out.M_exc = p.rho_t * out.V
+  out.M_ej = p.rho_t * out.V_ej
   return { outputs: out, warnings, errors }
 }

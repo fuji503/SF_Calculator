@@ -21,6 +21,8 @@ export interface LaserInputs {
   sigma_jitter: number
   /** 変換効率 */
   eta: number
+  /** 運転時間 [s]（化学のみ。燃料の総量の計算用） */
+  t_op: number
   /** 反応エネルギー密度 [J/kg]（化学のみ） */
   E_chem: number
   /** 排気で捨てる排熱の割合（化学のみ） */
@@ -85,6 +87,8 @@ export interface LaserOutputs {
   A_spot: number
   /** 化学のみ */
   m_dot?: number
+  /** 燃料の総量（運転時間あたり） */
+  M_fuel?: number
   Q_chem_total?: number
   /** 太陽光励起のみ */
   A_collector?: number
@@ -144,6 +148,7 @@ export function computeLaser(p: LaserInputs): LaserResult {
     if (!(p.E_chem > 0)) errors.push({ code: 'chem-range', keys: ['E_chem'] })
     if (!(p.f_exhaust >= 0 && p.f_exhaust <= 1)) errors.push({ code: 'chem-range', keys: ['f_exhaust'] })
     if (!(p.k_aux >= 0)) errors.push({ code: 'non-negative', keys: ['k_aux'] })
+    if (!(p.t_op >= 0)) errors.push({ code: 'non-negative', keys: ['t_op'] })
   }
   if (solar) {
     if (!(p.d_sun > 0)) errors.push({ code: 'positive', keys: ['d_sun'] })
@@ -185,11 +190,13 @@ export function computeLaser(p: LaserInputs): LaserResult {
   let P_in: number
   let Q_waste: number
   let m_dot: number | undefined
+  let M_fuel: number | undefined
   let Q_chem_total: number | undefined
   let A_collector: number | undefined
   let I_sun: number | undefined
   if (chemical) {
     m_dot = P_opt / (p.eta * p.E_chem)
+    M_fuel = m_dot * p.t_op
     Q_chem_total = P_opt / p.eta - P_opt
     Q_waste = (1 - p.f_exhaust) * Q_chem_total
     P_in = p.k_aux * P_opt
@@ -235,6 +242,7 @@ export function computeLaser(p: LaserInputs): LaserResult {
       D_turb,
       A_spot,
       m_dot,
+      M_fuel,
       Q_chem_total,
       A_collector,
       I_sun,

@@ -27,6 +27,11 @@ function base(over: Partial<SolarInputs> = {}): SolarInputs {
     sigma_point: 0,
     d: 100e3,
     theta_i: 0,
+    solve: false,
+    goal_by_irradiance: false,
+    solve_diameter: false,
+    P_goal: 1e6,
+    E_goal: 1361,
     ...over,
   }
 }
@@ -153,5 +158,57 @@ describe('入力チェック（§6）', () => {
     expect(codes({ d: 50 })).toContain('too-close')
     expect(codes({ theta_i: 40 * DEG })).toContain('oblique-concave')
     expect(codes({ atm_case: 'target_surface', tau: 5 })).toContain('opaque-atmosphere')
+  })
+})
+
+describe('届けたい量からの逆算（§4.6）', () => {
+  // T3 の条件
+  const t3: Partial<SolarInputs> = { d_sun: 1.52, D: 100, theta_i: 0.2, sigma_slope: 100 * URAD, sigma_point: 100 * URAD, d: 1000e3 }
+
+  it('T5：届けたい光の合計から基数を出し、端数を切り上げる', () => {
+    const o = outputsOf(base({ ...t3, solve: true, P_goal: 4e10 }))
+    expect4(o.N_exact, 9801.7)
+    expect(o.N).toBe(9802)
+    expect4(o.P_spot, 4.000e10)
+    expect(o.P_spot).toBeGreaterThanOrEqual(4e10)
+  })
+
+  it('T6：到達放射照度から基数を出す', () => {
+    const o = outputsOf(base({ ...t3, solve: true, goal_by_irradiance: true, E_goal: 1000 }))
+    expect4(o.N_exact, 7450.9)
+    expect(o.N).toBe(7451)
+    expect4(o.E_target, 1000)
+  })
+
+  it('T7：凹面鏡で、届けたい光の合計から鏡1枚の口径を出す（スポットは口径によらない）', () => {
+    const o = outputsOf(base({ solve: true, solve_diameter: true, P_goal: 1e5 }))
+    expect4(o.D, 10.20)
+    expect4(o.D_spot, 930.0)
+    expect4(o.P_spot, 1e5)
+  })
+
+  it('T8：平面鏡で、到達放射照度から鏡1枚の口径を出す', () => {
+    const o = outputsOf(base({ is_concave: false, d: 100, solve: true, solve_diameter: true, goal_by_irradiance: true, E_goal: 1000 }))
+    expect4(o.D, 8.712)
+    expect4(o.D_spot, 9.642)
+    expect4(o.E_target, 1000)
+  })
+
+  it('T9：平面鏡では、基数 × 鏡 1 m² あたりの光より強くできない', () => {
+    const r = computeSolar(base({ is_concave: false, d: 100, solve: true, solve_diameter: true, goal_by_irradiance: true, E_goal: 1300 }))
+    expect(r.errors.map((m) => m.code)).toEqual(['flat-unreachable'])
+    // 基数を逆算すれば届く
+    expect(computeSolar(base({ is_concave: false, d: 100, solve: true, goal_by_irradiance: true, E_goal: 1300 })).errors).toEqual([])
+  })
+
+  it('T10：理論上の最大放射照度を超える目標はエラー', () => {
+    const r = computeSolar(base({ solve: true, goal_by_irradiance: true, E_goal: 6e7 }))
+    expect(r.errors.map((m) => m.code)).toEqual(['goal-over-limit'])
+  })
+
+  it('逆算では、決める値（基数か口径）の入力を見ない', () => {
+    expect(computeSolar(base({ solve: true, N: 0 })).errors).toEqual([])
+    expect(computeSolar(base({ solve: true, solve_diameter: true, D: 0 })).errors).toEqual([])
+    expect(computeSolar(base({ solve: true, P_goal: 0 })).errors.map((m) => m.code)).toContain('positive')
   })
 })

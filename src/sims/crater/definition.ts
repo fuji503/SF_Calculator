@@ -488,6 +488,24 @@ const outputs: OutputDef[] = [
   { key: 'V', kind: 'number', group: 'crater', label: '掘られた体積', symbol: 'V', unit: unitDefs.volumeLarge },
   { key: 'V_ej', kind: 'number', group: 'crater', label: '噴出物の体積', symbol: 'V_{ej}', unit: unitDefs.volumeLarge },
   {
+    key: 'M_exc',
+    kind: 'number',
+    group: 'crater',
+    label: '掘られた土の質量',
+    symbol: 'M_{exc}',
+    unit: { ...unitDefs.mass, defaultId: 't' },
+    description: '掘られた体積 × 地盤の密度。原子炉・遮蔽の現地調達の遮蔽や、電源・排熱の蓄熱材（レゴリス）に使える量と比べられる',
+  },
+  {
+    key: 'M_ej',
+    kind: 'number',
+    group: 'crater',
+    label: '噴出物の質量',
+    symbol: 'M_{ej}',
+    unit: { ...unitDefs.mass, defaultId: 't' },
+    description: '噴出物の体積 × 地盤の密度（掘り出されて周りに積もる分）',
+  },
+  {
     key: 'thickness',
     kind: 'series',
     group: 'crater',
@@ -593,7 +611,7 @@ export const crater: SimDefinition = {
       const num = (k: string, v: number | undefined) => {
         if (v !== undefined && Number.isFinite(v)) outputs[k] = { kind: 'number', value: v }
       }
-      for (const k of ['E', 'v_esc', 'L0', 'm_i', 'W', 'z_b', 'z_star', 'z_burst', 'v_i', 'L_ground', 'D_rim', 'd_rim', 'h_rim', 'D_tc', 'd_tc', 'V', 'V_ej', 'P_peak', 'V_melt', 'lam', 'lam_opt', 'Fc', 'R_B', 'r_bury', 'v_ej_max', 'M_orbit', 'M_escape', 'M_seis', 'r_p1', 'r_p2', 'r_thermal'] as const) {
+      for (const k of ['E', 'v_esc', 'L0', 'm_i', 'W', 'z_b', 'z_star', 'z_burst', 'v_i', 'L_ground', 'D_rim', 'd_rim', 'h_rim', 'D_tc', 'd_tc', 'V', 'V_ej', 'M_exc', 'M_ej', 'P_peak', 'V_melt', 'lam', 'lam_opt', 'Fc', 'R_B', 'r_bury', 'v_ej_max', 'M_orbit', 'M_escape', 'M_seis', 'r_p1', 'r_p2', 'r_thermal'] as const) {
         num(k, o[k] as number | undefined)
       }
       if (o.r_ej_max !== undefined) {
