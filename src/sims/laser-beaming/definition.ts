@@ -235,7 +235,7 @@ export const laserBeaming: SimDefinition = {
       kind: 'number',
       key: 'E_goal',
       group: 'supply',
-      label: '目標に届けたい到達放射照度（受光面の平均）',
+      label: '目標に届けたい到達放射照度（単位面積あたり）',
       symbol: 'E_{goal}',
       description: '受光面 1 m² あたりの平均の光の強さ。大きいほど必要な目標光出力が増える。スポットの中心はこれより強い。目安：地球の太陽光 1361 W/m²',
       unit: unitDefs.irradiance,
@@ -357,11 +357,11 @@ export const laserBeaming: SimDefinition = {
     {
       key: 'E_target',
       kind: 'number',
-      label: '到達放射照度（受光面の平均）',
+      label: '到達放射照度（単位面積あたり）',
       symbol: 'E_{target}',
       unit: unitDefs.irradiance,
       primary: true,
-      description: '受光面に入る光の合計を、受光面の面積で割った平均の強さ。受光面を大きくするほど弱くなる',
+      description: '受光面 1 m² あたりの平均の光の強さ。受光面を大きくするほど弱くなる',
     },
     {
       key: 'D_spot',
@@ -373,8 +373,8 @@ export const laserBeaming: SimDefinition = {
       description:
         '光の約84〜86%が入る直径（ビームのすそ野は外へ広がるので、すべては入らない）。回折・ジッター・大気ゆらぎの3つの広がりを合わせた直径で、どれも距離に比例する。小さくするには、内訳の出力でいちばん大きいものを減らす。回折：口径を大きく、波長を短く、ビーム品質係数を 1 に近づける。ジッター：指向ジッターを小さくする。大気ゆらぎ：大気ゆらぎによる広がり角を小さくする（補償光学）か、発振器を宇宙に置く（配置を「目標が地表」にする）。目標光出力を変えても、スポット直径は変わらない',
     },
-    { key: 'P_in', kind: 'number', label: '要求入力電力', symbol: 'P_{in}', unit: unitDefs.power, primary: true, description: '化学レーザでは補機の電力、太陽光励起では 0' },
-    { key: 'Q_waste', kind: 'number', label: '要求排熱量', symbol: 'Q_{waste}', unit: unitDefs.power, primary: true, description: 'ラジエータなどで捨てる必要のある熱' },
+    { key: 'P_in', kind: 'number', label: '要求入力電力', symbol: 'P_{in}', unit: unitDefs.power, primary: true, description: '固体/ファイバーレーザ、気体（CO2）レーザ、自由電子レーザを動かすのに必要な電力。化学レーザでは補機の電力、太陽光励起では 0' },
+    { key: 'Q_waste', kind: 'number', label: '要求排熱量', symbol: 'Q_{waste}', unit: unitDefs.power, primary: true, description: 'レーザから出る、ラジエータなどで捨てる必要のある熱' },
     {
       key: 'P_rx',
       kind: 'number',

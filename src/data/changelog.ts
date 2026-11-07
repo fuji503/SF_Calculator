@@ -16,6 +16,13 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.3.5',
+    date: '2026-11-07',
+    changes: [
+      '「レーザ発振・送電」：「到達放射照度（受光面の平均）」の名前を「到達放射照度（単位面積あたり）」にした。要求入力電力と要求排熱量の説明を、何のための電力・どこから出る熱かが分かるように書き直した。',
+    ],
+  },
+  {
     version: '1.3.4',
     date: '2026-11-07',
     changes: [
