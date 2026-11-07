@@ -29,7 +29,11 @@ export interface CraterInputs {
   source: Source
   /** 目標のクレータから逆算する */
   solve: boolean
+  /** 逆算で、目標をクレータの深さにする（false は直径） */
+  goal_by_depth: boolean
   D_goal: number
+  /** 目標のクレータの深さ（縁から底まで） [m] */
+  d_goal: number
   /** 天体の ID（'custom' を含む）。熱放射（地球のみ）と警告に使う */
   body: string
   g: number
@@ -247,6 +251,8 @@ export interface NuclearCrater {
   d_a: number
   /** 曲線の最大の換算半径 */
   r_max: number
+  /** 直径が最大になる深さでの、縁から底までの換算深さ（d_a + 縁の高さ 0.1 R_a） */
+  q_rim_opt: number
 }
 
 export function nuclearCrater(curve: 'soil' | 'rock', W_kt: number, z: number | null, f: number): NuclearCrater {
@@ -263,6 +269,7 @@ export function nuclearCrater(curve: 'soil' | 'rock', W_kt: number, z: number | 
     R_a: interp(lams, pts.map((p) => p.r), lam) * s * f,
     d_a: interp(lams, pts.map((p) => p.q), lam) * s * f,
     r_max: top.r,
+    q_rim_opt: top.q + 0.1 * top.r,
   }
 }
 
@@ -393,7 +400,7 @@ export function computeCrater(p: CraterInputs): CraterResult {
   // ---- 入力チェック
   const positive: (keyof CraterInputs)[] = ['g', 'R_p', 'rho_t', 't_bury', 'rho_f']
   if (hasAir) positive.push('H', 'c0')
-  if (p.solve) positive.push('D_goal')
+  if (p.solve) positive.push(p.goal_by_depth ? 'd_goal' : 'D_goal')
   if (impact) {
     positive.push('delta', 'v0')
     if (!p.solve) positive.push(p.by_mass ? 'm_i' : 'L0')
@@ -401,7 +408,7 @@ export function computeCrater(p: CraterInputs): CraterResult {
   for (const k of positive) if (!(Number(p[k]) > 0)) errors.push({ code: 'range', keys: [k] })
   for (const k of ['rho_a0', 'P0', 'Y', 't_reg', 'D_c'] as const) if (!(p[k] >= 0)) errors.push({ code: 'range', keys: [k] })
   if (impact && !(p.theta > 0 && p.theta <= Math.PI / 2)) errors.push({ code: 'range', keys: ['theta'] })
-  if (!impact && !p.dob_optimal && !(p.z_b >= 0)) errors.push({ code: 'range', keys: ['z_b'] })
+  if (!impact && !p.dob_optimal && !p.solve && !(p.z_b >= 0)) errors.push({ code: 'range', keys: ['z_b'] })
   if (!(p.q > 0 && p.q < 1)) errors.push({ code: 'range', keys: ['q'] })
   if (p.frags.length === 0 || p.frags.some((s) => !(s > 0))) errors.push({ code: 'range', keys: ['frags'] })
   if (hasAir && !(p.p1 > 0 && p.p2 > 0)) errors.push({ code: 'range', keys: ['p1', 'p2'] })
@@ -414,13 +421,21 @@ export function computeCrater(p: CraterInputs): CraterResult {
   let W = p.W
   const f_nuc = gravityFactor(p.g, cls.mu)
   if (p.solve) {
+    const goal = p.goal_by_depth ? p.d_goal : p.D_goal
+    const goalKey = p.goal_by_depth ? 'd_goal' : 'D_goal'
     if (impact) {
-      const D = (L: number) => impactPart(L).crater?.D_rim ?? 0
-      if (D(1e5) < p.D_goal) return { outputs: null, warnings, errors: [{ code: 'no-solution', keys: ['D_goal'] }] }
-      L0 = bisect((L) => D(L) - p.D_goal, 1e-4, 1e5, true)
+      // 直径と深さは、衝突体が大きいほど大きい（空中爆発する大きさでは 0）
+      const size = (L: number) => {
+        const c = impactPart(L).crater
+        return c ? (p.goal_by_depth ? c.d_rim : c.D_rim) : 0
+      }
+      if (size(1e5) < goal) return { outputs: null, warnings, errors: [{ code: 'no-solution', keys: [goalKey] }] }
+      L0 = bisect((L) => size(L) - goal, 1e-4, 1e5, true)
     } else {
+      // 直径が最大になる深さでの直径・深さは、出力の 1/3.4 乗に比例する
       const top = nuclearCrater(cls.nuclear, 1, null, f_nuc)
-      W = (p.D_goal / (2 * top.r_max * f_nuc)) ** 3.4 * KT_TNT
+      const perKt = (p.goal_by_depth ? top.q_rim_opt : 2 * top.r_max) * f_nuc
+      W = (goal / perKt) ** 3.4 * KT_TNT
     }
   }
   const m_i = (Math.PI / 6) * p.delta * L0 ** 3
@@ -510,8 +525,8 @@ export function computeCrater(p: CraterInputs): CraterResult {
   } else {
     out.E = W
     const W_kt = W / KT_TNT
-    const nc = nuclearCrater(cls.nuclear, W_kt, p.dob_optimal ? null : p.z_b, f_nuc)
-    out.z_b = p.dob_optimal ? nc.z_opt : p.z_b
+    const nc = nuclearCrater(cls.nuclear, W_kt, p.dob_optimal || p.solve ? null : p.z_b, f_nuc)
+    out.z_b = p.dob_optimal || p.solve ? nc.z_opt : p.z_b
     out.lam = nc.lam
     out.lam_opt = nc.lam_opt
     out.Fc = ventedFraction(nc.lam)

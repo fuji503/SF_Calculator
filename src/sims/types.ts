@@ -169,6 +169,12 @@ export interface Message {
   params?: Record<string, number | string>
 }
 
+/** 出力欄に出す図（モジュールごと。画面でだけ読み込む）に渡す値 */
+export interface DiagramProps {
+  inputs: Inputs
+  outputs: Record<string, OutputValue>
+}
+
 export interface ComputeResult {
   /** 出力になったパラメータも同じキーで入れる */
   outputs: Record<string, OutputValue>
@@ -196,6 +202,11 @@ export interface SimDefinition {
   messages: Record<string, string>
   /** 新しいカードのグラフの軸（入力のキー、出力のキー） */
   defaultGraph: { x: string; y: string }
+  /**
+   * 入力に応じたグラフの軸の初期値（計算の向きなどで変えたいとき）。
+   * 入力を変えてこの値が変わったら、カードのグラフの軸をこの値に合わせ直す
+   */
+  graphPreset?: (inputs: Inputs) => { x: string; y: string }
   /** 純粋関数。入力は範囲チェック済みとは限らない */
   compute: (inputs: Inputs) => ComputeResult
   /** 古いバージョンの JSON の入力を変換する */

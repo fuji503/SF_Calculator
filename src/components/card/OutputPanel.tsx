@@ -1,8 +1,10 @@
+import { Suspense } from 'react'
 import { isVisible, messageText } from '../../core/evaluate.ts'
 import { formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
 import { t } from '../../i18n/ja.ts'
+import { simDiagrams } from '../../sims/diagrams.ts'
 import type { ComputeResult, OutputDef, SimDefinition } from '../../sims/types.ts'
 import { GroupSection } from './GroupSection.tsx'
 import { SeriesChart } from './SeriesChart.tsx'
@@ -31,6 +33,7 @@ export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup 
   const groups = def.outputGroups ?? []
   const ungrouped = others.filter((o) => !o.group || !groups.some((g) => g.id === o.group))
   const row = (o: OutputDef) => <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} />
+  const Diagram = simDiagrams[def.id]
 
   return (
     <div className="space-y-3">
@@ -53,6 +56,11 @@ export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup 
           <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} large />
         ))}
       </dl>
+      {Diagram && result && !failed && (
+        <Suspense fallback={null}>
+          <Diagram inputs={card.inputs} outputs={result.outputs} />
+        </Suspense>
+      )}
       {ungrouped.length > 0 && (
         <dl className={`space-y-1 border-t border-slate-800 pt-2 ${failed ? 'opacity-50' : ''}`}>{ungrouped.map(row)}</dl>
       )}

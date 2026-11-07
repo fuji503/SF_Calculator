@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultInputs, enumDisplayValue, evaluate, isVisible, selectEnum } from '../../core/evaluate.ts'
+import { defaultGraph, xCandidates, yCandidates } from '../../core/sweep.ts'
 import type { EnumParam, Inputs } from '../types.ts'
 import { crater } from './definition.ts'
 
@@ -64,5 +65,27 @@ describe('入力と出力の切り替え', () => {
     expect(num(r, 'r_p1')).toBeGreaterThan(0)
     expect(num(r, 'r_thermal')).toBeGreaterThan(0)
     expect(num(r, 'R_B')).toBeCloseTo(1000, 6)
+  })
+})
+
+describe('グラフの軸の初期値（モードごと）', () => {
+  const preset = (i: Inputs) => defaultGraph(crater, i)
+  it('隕石は衝突体の直径、核爆発は出力、逆算は速さと質量（核爆発は目標と出力）', () => {
+    const i = defaultInputs(crater)
+    expect(preset(i)).toMatchObject({ x: 'L0', y: ['D_rim'] })
+    expect(preset({ ...i, source: 'nuclear' })).toMatchObject({ x: 'W', y: ['D_rim'] })
+    expect(preset({ ...i, solve: true })).toMatchObject({ x: 'v0', y: ['m_i'] })
+    expect(preset({ ...i, source: 'nuclear', solve: true, goal_by_depth: true })).toMatchObject({ x: 'd_goal', y: ['W'] })
+  })
+
+  it('どのモードでも、初期値の軸を選べる', () => {
+    const base = defaultInputs(crater)
+    const modes: Inputs[] = [{}, { source: 'nuclear' }, { solve: true }, { solve: true, goal_by_depth: true }, { source: 'nuclear', solve: true }, { source: 'nuclear', solve: true, goal_by_depth: true }]
+    for (const over of modes) {
+      const i = { ...base, ...over }
+      const g = preset(i)
+      expect(xCandidates(crater, i).map((p) => p.key)).toContain(g.x)
+      expect(yCandidates(crater, i).map((o) => o.key)).toContain(g.y[0])
+    }
   })
 })

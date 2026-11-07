@@ -9,6 +9,7 @@ const CUSTOM = 'custom'
 const isImpact = (i: Inputs) => i.source !== 'nuclear'
 const isNuclear = (i: Inputs) => i.source === 'nuclear'
 const solving = (i: Inputs) => Boolean(i.solve)
+const byDepth = (i: Inputs) => Boolean(i.goal_by_depth)
 const isBody = (b: string) => (i: Inputs) => i.body === b
 const hasAir = (i: Inputs) => Number(i.rho_a0) > 0 && Number(i.P0) > 0
 const isEarth = isBody('earth')
@@ -86,6 +87,16 @@ const inputs: ParamDef[] = [
     labels: ['条件からクレータを出す', '目標のクレータから逆算する'],
   },
   {
+    kind: 'boolean',
+    key: 'goal_by_depth',
+    group: 'kind',
+    label: '逆算の目標',
+    description: '目標にするクレータの大きさ。直径（縁から縁まで）か、深さ（縁から底まで）を選ぶ',
+    default: false,
+    labels: ['直径から', '深さから'],
+    visibleWhen: solving,
+  },
+  {
     kind: 'number',
     key: 'D_goal',
     group: 'kind',
@@ -95,7 +106,19 @@ const inputs: ParamDef[] = [
     default: 100,
     min: 0,
     minExclusive: true,
-    visibleWhen: solving,
+    visibleWhen: (i) => solving(i) && !byDepth(i),
+  },
+  {
+    kind: 'number',
+    key: 'd_goal',
+    group: 'kind',
+    label: '目標のクレータの深さ（縁から底まで）',
+    symbol: 'd_{goal}',
+    unit: length,
+    default: 20,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: (i) => solving(i) && byDepth(i),
   },
 
   // §3.2 天体
@@ -269,7 +292,7 @@ const inputs: ParamDef[] = [
     symbol: 'v_0',
     description:
       '速いほどクレータが大きくなる。宇宙から重力だけで落ちてくるものは、少なくとも天体の脱出速度（地球 11.2、火星 5.0、月 2.4 km/s）で当たる。それより遅いのは、地表や低い軌道から打ち出す場合',
-    unit: unitDefs.velocity,
+    unit: { ...unitDefs.velocity, defaultId: 'km/s' },
     default: m0.v0,
     min: 0,
     minExclusive: true,
@@ -468,8 +491,9 @@ const outputs: OutputDef[] = [
     key: 'thickness',
     kind: 'series',
     group: 'crater',
-    label: '噴出物の厚さ（縁から外側）',
-    unit: unitDefs.thickness,
+    label: '噴出物が落ちて積もる厚さ（縁から外側）',
+    description: 'クレータから飛び出した土砂が、周りに落ちて積もる厚さ。縁で最も厚く、中心からの距離の3乗に反比例して薄くなる',
+    unit: { options: [U.m, U.cm], defaultId: 'm' },
     seriesX: { label: '中心からの距離', unit: length, scale: 'log' },
     seriesY: { scale: 'log' },
   },
@@ -534,6 +558,10 @@ export const crater: SimDefinition = {
   inputs,
   outputs,
   defaultGraph: { x: 'L0', y: 'D_rim' },
+  graphPreset: (i) => {
+    if (solving(i)) return isImpact(i) ? { x: 'v0', y: 'm_i' } : { x: byDepth(i) ? 'd_goal' : 'D_goal', y: 'W' }
+    return isImpact(i) ? { x: 'L0', y: 'D_rim' } : { x: 'W', y: 'D_rim' }
+  },
   messages: {
     range: '範囲内の値を入力してください',
     'no-solution': '目標のクレータを作れる条件が見つかりません（空中爆発になるか、範囲を超えています）',
@@ -599,7 +627,9 @@ function toCraterInputs(i: Inputs): CraterInputs {
   return {
     source: String(i.source) as Source,
     solve: Boolean(i.solve),
+    goal_by_depth: Boolean(i.goal_by_depth),
     D_goal: num('D_goal'),
+    d_goal: num('d_goal'),
     body,
     g: num('g'),
     R_p: num('R_p'),

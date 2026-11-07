@@ -55,14 +55,19 @@ export function defaultXRange(p: NumberParam, current: unknown): Pick<GraphSetti
   return { xMin: lo, xMax: p.max ?? lo + 1, xScale: 'linear' }
 }
 
-export function defaultGraph(def: SimDefinition, inputs: Inputs, x = def.defaultGraph.x): GraphSettings {
+/** グラフの軸の初期値（入力に応じた初期値があればそれを使う） */
+export function graphPresetOf(def: SimDefinition, inputs: Inputs): { x: string; y: string } {
+  return def.graphPreset?.(inputs) ?? def.defaultGraph
+}
+
+export function defaultGraph(def: SimDefinition, inputs: Inputs, x = graphPresetOf(def, inputs).x): GraphSettings {
   const p = def.inputs.find((q): q is NumberParam => q.key === x && q.kind === 'number')
   const range = p ? defaultXRange(p, inputs[x]) : { xMin: 1, xMax: 10, xScale: 'log' as const }
   return {
     x,
     ...range,
     points: DEFAULT_POINTS,
-    y: [def.defaultGraph.y],
+    y: [graphPresetOf(def, inputs).y],
     yScale: 'log',
   }
 }

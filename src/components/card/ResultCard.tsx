@@ -2,7 +2,7 @@ import { toPng } from 'html-to-image'
 import { useMemo, useRef, type HTMLAttributes, type ReactNode } from 'react'
 import { INVALID_INPUT, messageText, validateInputs } from '../../core/evaluate.ts'
 import { safeFileName, timestamp, toExportFile, type Card } from '../../core/storage.ts'
-import type { GraphSettings } from '../../core/sweep.ts'
+import { defaultGraph, graphPresetOf, type GraphSettings } from '../../core/sweep.ts'
 import { useCardResult, useSweepResult } from '../../hooks/useComputation.ts'
 import { t } from '../../i18n/ja.ts'
 import type { Inputs, SimDefinition } from '../../sims/types.ts'
@@ -42,7 +42,15 @@ export function ResultCard({ def, card, isFirst, isLast, onChange, onDuplicate, 
     return out
   }, [def, card.inputs, result])
 
-  const setInputs = (fn: (i: Inputs) => Inputs) => onChange((c) => ({ ...c, inputs: fn(c.inputs) }))
+  const setInputs = (fn: (i: Inputs) => Inputs) =>
+    onChange((c) => {
+      const inputs = fn(c.inputs)
+      // 計算の向きなどが変わって、グラフの軸の初期値が変わったら、軸を合わせ直す
+      const before = graphPresetOf(def, c.inputs)
+      const after = graphPresetOf(def, inputs)
+      const graph = before.x !== after.x || before.y !== after.y ? defaultGraph(def, inputs) : c.graph
+      return { ...c, inputs, graph }
+    })
   const setGraph = (fn: (g: GraphSettings) => GraphSettings) => onChange((c) => ({ ...c, graph: fn(c.graph) }))
   const setUi = (k: 'ioOpen' | 'graphOpen') => onChange((c) => ({ ...c, ui: { ...c.ui, [k]: !c.ui[k] } }))
   const toggleGroup = (id: string) =>

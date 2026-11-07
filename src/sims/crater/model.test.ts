@@ -14,7 +14,9 @@ function base(over: Partial<CraterInputs> = {}): CraterInputs {
   return {
     source: 'impact',
     solve: false,
+    goal_by_depth: false,
     D_goal: 100,
+    d_goal: 20,
     body: 'moon',
     ...BODIES.moon,
     ground: 'mare_regolith',
@@ -88,6 +90,11 @@ describe('クレータの大きさ（隕石、§4.2）', () => {
     expect4(o.L0, 50, 1e-4)
   })
 
+  it('深さからの逆算でも、もとの衝突体の直径に戻る', () => {
+    const o = outputsOf({ ...meteor(90 * DEG), solve: true, goal_by_depth: true, d_goal: 260.0678 })
+    expect4(o.L0, 50, 1e-4)
+  })
+
   it('T12 衝突の最大の圧力と衝突体の状態', () => {
     expect4(peakPressure('iron', 'sandstone', 12.8e3), 267.3e9)
     expect(outputsOf(meteor(90 * DEG)).impactor_state).toBe('一部が溶ける（前の方）')
@@ -153,9 +160,12 @@ describe('核爆発のクレータ（§4.3）', () => {
     expect(r.warnings.map((w) => w.code)).toContain('contained')
   })
 
-  it('逆算した出力で、目標の直径になる', () => {
-    const o = outputsOf(base({ source: 'nuclear', ground_class: 'dry_soil', solve: true, D_goal: 500 }))
+  it('逆算した出力で、目標の直径・深さになる（直径が最大になる深さで起爆）', () => {
+    const o = outputsOf(base({ source: 'nuclear', ground_class: 'dry_soil', solve: true, D_goal: 500, dob_optimal: false }))
     expect4(o.D_rim, 500, 1e-6)
+    expect4(o.lam, 49.5, 1e-9)
+    const d = outputsOf(base({ source: 'nuclear', ground_class: 'dry_soil', solve: true, goal_by_depth: true, d_goal: 80 }))
+    expect4(d.d_rim, 80, 1e-6)
   })
 })
 
