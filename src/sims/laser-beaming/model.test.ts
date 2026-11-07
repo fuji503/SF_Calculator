@@ -25,6 +25,10 @@ function base(type: LaserType, over: Partial<LaserInputs> = {}): LaserInputs {
     I_sun_auto: true,
     I_sun: 1361,
     P_opt: 1e6,
+    solve: false,
+    goal_by_irradiance: false,
+    P_goal: 1e6,
+    E_goal: 1361,
     d: 10_000e3,
     atmosphere: 'vacuum',
     placement: 'emitter_surface',
@@ -155,5 +159,47 @@ describe('入力チェック（§6）', () => {
     expect(codes('fiber', { lambda: 1.5e-6 })).not.toContain('wavelength-changed')
     expect(codes('co2', { atmosphere: 'mars', tau: 50 })).toContain('opaque-atmosphere')
     expect(codes('fiber', { D: 10, atmosphere: 'earth', tau: 0.15, theta_turb: 5 * URAD })).toContain('turbulence-dominant')
+  })
+})
+
+describe('届けたい量からの逆算（§4.6）', () => {
+  // T3 の条件（地表から静止軌道へ、大気を通す）
+  const t3: Partial<LaserInputs> = {
+    lambda: 1.6e-6, M2: 1.0, D: 10, eta: 0.1, sigma_jitter: 0.05 * URAD, d: 36_000e3,
+    atmosphere: 'earth', placement: 'emitter_surface', tau: 0.1, z: 0.5, theta_turb: 5 * URAD,
+  }
+
+  it('届く光の合計から逆算すると、順方向の計算に戻る（T3）', () => {
+    const fwd = outputsOf(base('fel', { ...t3, P_opt: 10e6 }))
+    const inv = outputsOf(base('fel', { ...t3, solve: true, P_goal: fwd.P_target }))
+    expect(inv.P_opt).toBeCloseTo(10e6, 0)
+    expect4(inv.E_target, 348.0)
+    expect4(inv.P_in, 100e6)
+    expect4(inv.Q_waste, 90e6)
+  })
+
+  it('到達放射照度から逆算すると、スポット直径は変わらず、目標光出力が決まる（T1）', () => {
+    const inv = outputsOf(base('fiber', { solve: true, goal_by_irradiance: true, E_goal: 1276 }))
+    expect4(inv.D_spot, 31.58)
+    expect4(inv.E_target, 1276)
+    expect4(inv.P_opt, 1e6)
+  })
+
+  it('化学レーザの燃料消費率も、逆算した出力から出す（T4）', () => {
+    const t4 = { lambda: 3.8e-6, M2: 2.0, D: 2, sigma_jitter: 0.2 * URAD, d: 1_000e3 }
+    const inv = outputsOf(base('chemical', { ...t4, solve: true, P_goal: 1e6 }))
+    expect4(inv.m_dot!, 5)
+    expect4(inv.E_target, 1.470e4)
+  })
+
+  it('逆算では目標光出力の入力を見ず、目標の値を確かめる', () => {
+    const codes = (type: LaserType, p: Partial<LaserInputs>) => {
+      const r = computeLaser(base(type, p))
+      return [...r.errors, ...r.warnings].map((m) => m.code)
+    }
+    expect(codes('fiber', { solve: true, P_opt: 0 })).toEqual([])
+    expect(codes('fiber', { solve: true, P_goal: 0 })).toContain('positive')
+    expect(codes('fiber', { solve: true, goal_by_irradiance: true, E_goal: -1 })).toContain('positive')
+    expect(codes('fiber', { solve: true, atmosphere: 'earth', tau: 1e6 })).toContain('no-light')
   })
 })

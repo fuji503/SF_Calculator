@@ -32,8 +32,16 @@ export interface LaserInputs {
   I_sun_auto: boolean
   /** 太陽定数 [W/m²]（太陽光励起で手入力のとき） */
   I_sun: number
-  /** 目標光出力 [W] */
+  /** 目標光出力 [W]（逆算のときは使わない） */
   P_opt: number
+  /** 目標に届けたい量から目標光出力を逆算する */
+  solve: boolean
+  /** 逆算の目標を到達放射照度にする（false なら届く光の合計） */
+  goal_by_irradiance: boolean
+  /** 目標に届けたい光の合計 [W] */
+  P_goal: number
+  /** 目標に届けたい到達放射照度 [W/m²] */
+  E_goal: number
   /** 発振器から目標までの距離 [m] */
   d: number
   atmosphere: Atmosphere
@@ -47,6 +55,8 @@ export interface LaserInputs {
 }
 
 export interface LaserOutputs {
+  /** 目標光出力（逆算のときは計算結果） */
+  P_opt: number
   E_target: number
   D_spot: number
   P_in: number
@@ -110,7 +120,8 @@ export function computeLaser(p: LaserInputs): LaserResult {
   const inAir = p.atmosphere !== 'vacuum'
 
   // --- 入力チェック（§6）
-  for (const k of ['P_opt', 'lambda', 'D', 'd'] as const) {
+  const goalKey = !p.solve ? 'P_opt' : p.goal_by_irradiance ? 'E_goal' : 'P_goal'
+  for (const k of [goalKey, 'lambda', 'D', 'd'] as const) {
     if (!(p[k] > 0)) errors.push({ code: 'positive', keys: [k] })
   }
   if (!(p.eta > 0 && p.eta <= 1)) errors.push({ code: 'eta-range', keys: ['eta'] })
@@ -133,28 +144,6 @@ export function computeLaser(p: LaserInputs): LaserResult {
   }
   if (errors.length > 0) return { outputs: null, warnings, errors }
 
-  // --- §4.1 リソース消費と排熱
-  let P_in: number
-  let Q_waste: number
-  let m_dot: number | undefined
-  let Q_chem_total: number | undefined
-  let A_collector: number | undefined
-  let I_sun: number | undefined
-  if (chemical) {
-    m_dot = p.P_opt / (p.eta * p.E_chem)
-    Q_chem_total = p.P_opt / p.eta - p.P_opt
-    Q_waste = (1 - p.f_exhaust) * Q_chem_total
-    P_in = p.k_aux * p.P_opt
-  } else if (solar) {
-    I_sun = p.I_sun_auto ? SOLAR_CONSTANT_1AU / p.d_sun ** 2 : p.I_sun
-    A_collector = p.P_opt / (p.eta * I_sun)
-    Q_waste = A_collector * I_sun - p.P_opt
-    P_in = 0
-  } else {
-    P_in = p.P_opt / p.eta
-    Q_waste = P_in - p.P_opt
-  }
-
   // --- §4.2 スポット直径（エネルギーの約84〜86%が入る直径をそろえて二乗和）
   const D_diff = (2.44 * p.M2 * p.lambda * p.d) / p.D
   const D_jitter = 4 * p.sigma_jitter * p.d
@@ -164,9 +153,34 @@ export function computeLaser(p: LaserInputs): LaserResult {
 
   // --- §4.3 大気透過率、§4.4 到達電力と放射照度、§4.5 遅延時間
   const T_atm = inAir ? Math.exp(-p.tau / Math.cos(p.z)) : 1
-  const P_target = p.P_opt * T_atm
+  // §4.6 逆算：届けたい量から目標光出力を決める（スポット直径と透過率は目標光出力によらない）
+  const P_target = !p.solve ? p.P_opt * T_atm : p.goal_by_irradiance ? p.E_goal * A_spot : p.P_goal
+  const P_opt = p.solve ? P_target / T_atm : p.P_opt
   const E_target = P_target / A_spot
   const t_delay = p.d / C_LIGHT
+  if (p.solve && !(T_atm > 0)) return { outputs: null, warnings, errors: [{ code: 'no-light', keys: ['tau'] }] }
+
+  // --- §4.1 リソース消費と排熱
+  let P_in: number
+  let Q_waste: number
+  let m_dot: number | undefined
+  let Q_chem_total: number | undefined
+  let A_collector: number | undefined
+  let I_sun: number | undefined
+  if (chemical) {
+    m_dot = P_opt / (p.eta * p.E_chem)
+    Q_chem_total = P_opt / p.eta - P_opt
+    Q_waste = (1 - p.f_exhaust) * Q_chem_total
+    P_in = p.k_aux * P_opt
+  } else if (solar) {
+    I_sun = p.I_sun_auto ? SOLAR_CONSTANT_1AU / p.d_sun ** 2 : p.I_sun
+    A_collector = P_opt / (p.eta * I_sun)
+    Q_waste = A_collector * I_sun - P_opt
+    P_in = 0
+  } else {
+    P_in = P_opt / p.eta
+    Q_waste = P_in - P_opt
+  }
 
   // --- 警告と情報（§6）
   if (inAir && p.z > 75 * DEG) warnings.push({ code: 'low-elevation', keys: ['z'] })
@@ -179,6 +193,7 @@ export function computeLaser(p: LaserInputs): LaserResult {
 
   return {
     outputs: {
+      P_opt,
       E_target,
       D_spot,
       P_in,

@@ -17,6 +17,8 @@ const isChemical = (i: Inputs) => i.laser_type === 'chemical'
 const isSolar = (i: Inputs) => i.laser_type === 'solar_pumped'
 const inAir = (i: Inputs) => i.atmosphere !== 'vacuum'
 const turbulent = (i: Inputs) => inAir(i) && i.placement === 'emitter_surface'
+const solving = (i: Inputs) => Boolean(i.solve)
+const byIrradiance = (i: Inputs) => Boolean(i.goal_by_irradiance)
 
 /** 大気を通るときの τ のプリセット（発振器の方式と大気の組み合わせで決まる） */
 function tauPreset(type: string, atmosphere: string): Inputs {
@@ -195,16 +197,64 @@ export const laserBeaming: SimDefinition = {
       role: (i) => (i.I_sun_auto ? 'output' : 'input'),
     },
     {
+      kind: 'boolean',
+      key: 'solve',
+      group: 'supply',
+      label: '計算の向き',
+      description:
+        '「届けたい量から逆算する」では、目標に届けたい光の量から、必要な目標光出力を求める。届く量は光のままの値で、受光パネルなどで電気に変える前の量（電気で必要な量は、変換効率で割ってから入れる）',
+      default: false,
+      labels: ['目標光出力から計算する', '届けたい量から逆算する'],
+    },
+    {
+      kind: 'boolean',
+      key: 'goal_by_irradiance',
+      group: 'supply',
+      label: '逆算の目標',
+      description:
+        '届く光の合計は、受けて使える光の量（発電量の元になる）。到達放射照度は、1 m² あたりの光の強さ（受ける側の熱や、物を焼けるかの目安）。スポット直径は目標光出力では変わらないので、どちらか一方を決めればもう一方も決まる',
+      default: false,
+      labels: ['届く光の合計から', '到達放射照度から'],
+      visibleWhen: solving,
+    },
+    {
+      kind: 'number',
+      key: 'P_goal',
+      group: 'supply',
+      label: '目標に届けたい光の合計',
+      symbol: 'P_{goal}',
+      description: 'スポットに届く光の合計（大気で減ったあと）。大きいほど必要な目標光出力が増える',
+      unit: { ...unitDefs.power, defaultId: 'MW' },
+      default: 1e6,
+      min: 0,
+      minExclusive: true,
+      visibleWhen: (i) => solving(i) && !byIrradiance(i),
+    },
+    {
+      kind: 'number',
+      key: 'E_goal',
+      group: 'supply',
+      label: '目標に届けたい到達放射照度（スポット平均）',
+      symbol: 'E_{goal}',
+      description: '1 m² あたりの光の強さ。大きいほど必要な目標光出力が増える。目安：地球の太陽光 1361 W/m²',
+      unit: unitDefs.irradiance,
+      default: SOLAR_CONSTANT_1AU,
+      min: 0,
+      minExclusive: true,
+      visibleWhen: (i) => solving(i) && byIrradiance(i),
+    },
+    {
       kind: 'number',
       key: 'P_opt',
       group: 'supply',
       label: '目標光出力',
       symbol: 'P_{opt}',
-      description: '発振器から出る光の出力。必要な電力や排熱はここから逆算する',
+      description: '発振器から出る光の出力。必要な電力や排熱はここから計算する。逆算のときは計算結果になる',
       unit: { ...unitDefs.power, defaultId: 'MW' },
       default: 1e6,
       min: 0,
       minExclusive: true,
+      role: (i) => (solving(i) ? 'output' : 'input'),
     },
     {
       kind: 'number',
@@ -292,7 +342,7 @@ export const laserBeaming: SimDefinition = {
     { key: 'D_spot', kind: 'number', label: '実効スポット直径', symbol: 'D_{spot}', unit: unitDefs.length, primary: true },
     { key: 'P_in', kind: 'number', label: '要求入力電力', symbol: 'P_{in}', unit: unitDefs.power, primary: true, description: '化学レーザでは補機の電力、太陽光励起では 0' },
     { key: 'Q_waste', kind: 'number', label: '要求排熱量', symbol: 'Q_{waste}', unit: unitDefs.power, primary: true, description: 'ラジエータなどで捨てる必要のある熱' },
-    { key: 'P_target', kind: 'number', label: '目標に届く電力', symbol: 'P_{target}', unit: unitDefs.power },
+    { key: 'P_target', kind: 'number', label: '目標に届く光の合計', symbol: 'P_{target}', unit: unitDefs.power, description: '大気で減ったあと、スポットに届く光の合計。電気に変える前の値' },
     { key: 'sun_ratio', kind: 'number', label: '地球の太陽光との比', symbol: 'E_{target}/1361', unit: fixedUnit('倍') },
     { key: 'T_atm', kind: 'number', label: '大気透過率', symbol: 'T_{atm}', unit: unitDefs.none },
     { key: 'D_diff', kind: 'number', label: 'スポット径の内訳：回折', symbol: 'D_{diff}', unit: unitDefs.length },
@@ -307,6 +357,7 @@ export const laserBeaming: SimDefinition = {
     { key: 'I_sun', kind: 'number', label: '太陽定数', symbol: 'I_\\odot', unit: unitDefs.irradiance, visibleWhen: isSolar },
   ],
   defaultGraph: { x: 'd', y: 'E_target' },
+  graphPreset: (i) => (solving(i) ? { x: 'd', y: 'P_opt' } : { x: 'd', y: 'E_target' }),
   messages: {
     positive: '正の値を入力してください',
     'non-negative': '0 以上の値を入力してください',
@@ -318,6 +369,7 @@ export const laserBeaming: SimDefinition = {
     'too-close': '目標が近すぎるため、近似の精度が落ちます',
     'wavelength-changed': '波長を変えたので、大気の光学的厚さを確認してください',
     'opaque-atmosphere': '大気でほとんどの光が失われています。波長を見直してください',
+    'no-light': '大気で光がすべて失われるため、逆算できません。波長か光学的厚さを見直してください',
     'turbulence-dominant': '大気ゆらぎがスポットを広げています。補償光学の利用（θturb を小さくする）を検討してください',
   },
   compute(inputs: Inputs): ComputeResult {
@@ -348,6 +400,10 @@ function toLaserInputs(i: Inputs): LaserInputs {
     I_sun_auto: Boolean(i.I_sun_auto),
     I_sun: num('I_sun'),
     P_opt: num('P_opt'),
+    solve: Boolean(i.solve),
+    goal_by_irradiance: Boolean(i.goal_by_irradiance),
+    P_goal: num('P_goal'),
+    E_goal: num('E_goal'),
     d: num('d'),
     atmosphere: String(i.atmosphere) as Atmosphere,
     placement: String(i.placement) as Placement,

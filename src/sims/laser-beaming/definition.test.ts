@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { defaultInputs, evaluate, selectEnum } from '../../core/evaluate.ts'
+import { defaultInputs, evaluate, paramRole, selectEnum } from '../../core/evaluate.ts'
+import { defaultGraph, xCandidates, yCandidates } from '../../core/sweep.ts'
 import type { EnumParam, Inputs } from '../types.ts'
 import { laserBeaming } from './definition.ts'
 
@@ -38,5 +39,28 @@ describe('プリセット（§3.4）', () => {
     const i = pick(defaultInputs(laserBeaming), 'laser_type', 'chemical')
     const r = evaluate(laserBeaming, i)
     expect(r.outputs.m_dot).toEqual({ kind: 'number', value: 5 })
+  })
+})
+
+describe('届けたい量からの逆算', () => {
+  const pOpt = laserBeaming.inputs.find((p) => p.key === 'P_opt')!
+
+  it('逆算では目標光出力が計算結果になり、グラフは距離と目標光出力になる', () => {
+    const i = { ...defaultInputs(laserBeaming), solve: true, P_goal: 2e6 }
+    expect(paramRole(pOpt, i)).toBe('output')
+    const r = evaluate(laserBeaming, i)
+    expect(r.errors).toEqual([])
+    expect(r.outputs.P_opt).toEqual({ kind: 'number', value: 2e6 })
+    expect(defaultGraph(laserBeaming, i)).toMatchObject({ x: 'd', y: ['P_opt'] })
+  })
+
+  it('どのモードでも、初期値の軸を選べる', () => {
+    const modes: Inputs[] = [{}, { solve: true }, { solve: true, goal_by_irradiance: true }]
+    for (const over of modes) {
+      const i = { ...defaultInputs(laserBeaming), ...over }
+      const g = defaultGraph(laserBeaming, i)
+      expect(xCandidates(laserBeaming, i).map((p) => p.key)).toContain(g.x)
+      expect(yCandidates(laserBeaming, i).map((o) => o.key)).toContain(g.y[0])
+    }
   })
 })
