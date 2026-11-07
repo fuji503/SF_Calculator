@@ -35,6 +35,19 @@ export function formatNumber(value: number, digits = 4): string {
 }
 
 /**
+ * 個数など、桁が大きくても指数表記にせず、3桁ごとにカンマで区切って書く（1,234,567）。
+ * decimals は小数点以下の桁数
+ */
+export function formatGrouped(value: number, decimals = 0): string {
+  if (Number.isNaN(value)) return '—'
+  if (!Number.isFinite(value)) return value > 0 ? '∞' : '−∞'
+  const [int, frac] = Math.abs(value).toFixed(decimals).split('.')
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const sign = value < 0 && Number(Math.abs(value).toFixed(decimals)) !== 0 ? '−' : ''
+  return sign + (frac ? `${grouped}.${frac}` : grouped)
+}
+
+/**
  * 入力欄の文字列を数値にする。指数表記（1.5e7、1.5E-3）、全角数字、桁区切りのカンマを受け付ける。
  * 数値として読めないときは null。
  */

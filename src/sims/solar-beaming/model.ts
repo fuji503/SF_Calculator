@@ -54,6 +54,8 @@ export interface SolarOutputs {
   N: number
   /** 逆算で必要な基数（端数を切り上げる前） */
   N_exact: number
+  /** 鏡1枚の面積 */
+  A_mirror: number
   E_target: number
   suns: number
   D_spot: number
@@ -171,6 +173,7 @@ export function computeSolar(p: SolarInputs): SolarResult {
       D,
       N,
       N_exact,
+      A_mirror: (Math.PI / 4) * D ** 2,
       E_target,
       suns,
       D_spot,

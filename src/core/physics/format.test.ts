@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatInputValue, formatNumber, parseNumberInput } from './format.ts'
+import { formatGrouped, formatInputValue, formatNumber, parseNumberInput } from './format.ts'
 
 describe('formatNumber', () => {
   it('有効数字4桁の固定小数点', () => {
@@ -51,5 +51,20 @@ describe('formatInputValue', () => {
     expect(formatInputValue(1e-4 * 1e6)).toBe('100')
     expect(formatInputValue(1.5e12)).toBe('1.5e12')
     expect(formatInputValue(1e-6)).toBe('1e-6')
+  })
+})
+
+describe('formatGrouped', () => {
+  it('指数表記にせず、3桁ごとにカンマで区切る', () => {
+    expect(formatGrouped(9802)).toBe('9,802')
+    expect(formatGrouped(12_345_678)).toBe('12,345,678')
+    expect(formatGrouped(999)).toBe('999')
+    expect(formatGrouped(9801.69, 1)).toBe('9,801.7')
+    expect(formatGrouped(-1234.5, 1)).toBe('−1,234.5')
+    expect(formatGrouped(Number.NaN)).toBe('—')
+  })
+
+  it('区切った文字列は入力欄で読める', () => {
+    expect(parseNumberInput(formatGrouped(12_345_678))).toBe(12_345_678)
   })
 })

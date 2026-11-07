@@ -16,6 +16,14 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.3.8',
+    date: '2026-11-08',
+    changes: [
+      '「太陽光集光・送光」：出力に「鏡1枚の面積」を追加した。逆算の「スポットに届けたい光の合計」の初期値を 1 GW にした（1 MW では鏡1基で足りてしまうため）。',
+      '基数などの個数を、指数表記にせず3桁ごとにカンマで区切って表示するようにした（太陽光集光・送光の基数、サンシェードの整数の入力など）。',
+    ],
+  },
+  {
     version: '1.3.7',
     date: '2026-11-08',
     changes: [

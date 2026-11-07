@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import { enumDisplayValue, isVisible, paramRole, selectEnum } from '../../core/evaluate.ts'
-import { formatNumber } from '../../core/physics/format.ts'
+import { formatGrouped, formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
 import { t } from '../../i18n/ja.ts'
@@ -92,6 +92,7 @@ function ParamRow({ p, card, result, invalid, onInputs, onUnit }: RowProps) {
         ) : (
           <div className="flex items-center gap-1">
             <NumberInput
+              grouped={p.integer}
               id={id}
               value={Number(card.inputs[p.key])}
               unit={p.unit}
@@ -133,7 +134,9 @@ function ParamRow({ p, card, result, invalid, onInputs, onUnit }: RowProps) {
 function AutoValue({ p, card, result, onUnit }: { p: NumberParam; card: Card; result: ComputeResult | null; onUnit: Props['onUnit'] }) {
   const out = result?.outputs[p.key]
   const u = findUnit(p.unit, card.inputUnits[p.key])
-  const text = out?.kind === 'number' && result?.errors.length === 0 ? formatNumber(fromInternal(out.value, u)) : '—'
+  const value = out?.kind === 'number' ? fromInternal(out.value, u) : Number.NaN
+  // 整数のパラメータ（基数など）は、指数表記にせず3桁ごとに区切る
+  const text = out?.kind === 'number' && result?.errors.length === 0 ? (p.integer ? formatGrouped(value) : formatNumber(value)) : '—'
   return (
     <div className="flex items-center gap-1">
       <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">{t.card.auto}</span>

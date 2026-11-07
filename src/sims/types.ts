@@ -156,6 +156,8 @@ export interface OutputDef {
   seriesY?: { scale: 'linear' | 'log' }
   /** 値の下に小さく添える文字の出力のキー（例：面積が日照中と日陰中のどちらで決まったか） */
   noteKey?: string
+  /** 個数など：指数表記にせず、3桁ごとに区切り、小数点以下をこの桁数まで書く */
+  decimals?: number
 }
 
 /** 計算のメッセージ。文言はモジュールの messages から code で引く */

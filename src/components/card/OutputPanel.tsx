@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { isVisible, messageText } from '../../core/evaluate.ts'
-import { formatNumber } from '../../core/physics/format.ts'
+import { formatGrouped, formatNumber } from '../../core/physics/format.ts'
 import { findUnit, fromInternal } from '../../core/physics/units.ts'
 import type { Card } from '../../core/storage.ts'
 import { t } from '../../i18n/ja.ts'
@@ -146,13 +146,18 @@ function OutputRow({
   )
 }
 
+/** 出力の数値の表示。個数などは3桁ごとに区切る */
+function formatOutput(o: OutputDef, v: number): string {
+  return o.decimals === undefined ? formatNumber(v) : formatGrouped(v, o.decimals)
+}
+
 function OutputValueText({ o, card, value, large }: { o: OutputDef; card: Card; value: ComputeResult['outputs'][string] | undefined; large: boolean }) {
   const cls = `font-mono ${large ? 'text-lg font-semibold text-slate-50' : 'text-sm text-slate-200'}`
   if (!value) return <span className={cls}>—</span>
   switch (value.kind) {
     case 'number': {
       const u = o.unit ? findUnit(o.unit, card.outputUnits[o.key]) : undefined
-      return <span className={cls}>{formatNumber(u ? fromInternal(value.value, u) : value.value)}</span>
+      return <span className={cls}>{formatOutput(o, u ? fromInternal(value.value, u) : value.value)}</span>
     }
     case 'text':
       return <span className="text-sm text-slate-200">{value.value}</span>
@@ -205,7 +210,7 @@ export function PrimarySummary({ def, card, result }: { def: SimDefinition; card
           const u = o.unit ? findUnit(o.unit, card.outputUnits[o.key]) : undefined
           return (
             <span key={o.key} className="text-slate-400">
-              {o.label} <span className="font-mono text-slate-100">{formatNumber(u ? fromInternal(v.value, u) : v.value)}</span>{' '}
+              {o.label} <span className="font-mono text-slate-100">{formatOutput(o, u ? fromInternal(v.value, u) : v.value)}</span>{' '}
               {u?.label}
             </span>
           )

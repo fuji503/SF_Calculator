@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { formatInputValue, parseNumberInput } from '../../core/physics/format.ts'
+import { formatGrouped, formatInputValue, parseNumberInput } from '../../core/physics/format.ts'
 import { findUnit, fromInternal, toInternal, type UnitDef } from '../../core/physics/units.ts'
 
 interface NumberInputProps {
@@ -13,15 +13,21 @@ interface NumberInputProps {
   invalid?: boolean
   ariaLabel?: string
   className?: string
+  /** 整数を3桁ごとに区切って表示する（基数など） */
+  grouped?: boolean
 }
 
 /**
  * 数値の入力欄。表示単位で書いた値を、内部単位に直して渡す。
  * 書きかけの文字列（1.5e など）は、そのまま残して赤枠にする。
  */
-export function NumberInput({ id, value, unit, unitId, onChange, invalid, ariaLabel, className = '' }: NumberInputProps) {
+export function NumberInput({ id, value, unit, unitId, onChange, invalid, ariaLabel, className = '', grouped = false }: NumberInputProps) {
   const u = findUnit(unit, unitId)
-  const shown = (v: number) => (Number.isFinite(v) ? formatInputValue(fromInternal(v, u)) : '')
+  const shown = (v: number) => {
+    if (!Number.isFinite(v)) return ''
+    const x = fromInternal(v, u)
+    return grouped && Number.isInteger(x) ? formatGrouped(x) : formatInputValue(x)
+  }
   const [text, setText] = useState(() => shown(value))
   const [synced, setSynced] = useState({ value, unitId: u.id })
 
