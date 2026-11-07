@@ -10,6 +10,7 @@ const modules = {
   sunshade: () => import('./sunshade/explanation.tsx'),
   'power-thermal': () => import('./power-thermal/explanation.tsx'),
   'reactor-shield': () => import('./reactor-shield/explanation.tsx'),
+  crater: () => import('./crater/explanation.tsx'),
 }
 
 describe('パラメータや計算の解説', () => {

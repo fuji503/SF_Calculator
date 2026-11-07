@@ -67,4 +67,12 @@ const ICON_PATHS: Record<SimIconKind, ReactNode> = {
       <circle cx="12" cy="14.6" r="0.9" fill="currentColor" stroke="none" />
     </>
   ),
+  // 盛り上がった縁のあるクレータと、尾を引いて落ちてくる隕石
+  crater: (
+    <>
+      <path d="M2 18.5h3.5l1.6-2.6q4.9 6.2 9.8 0l1.6 2.6H22" />
+      <circle cx="12" cy="8" r="2" />
+      <path d="M13.5 6.6 18 2.5M14.2 8.6l5-2.1M11.6 6.1l1.6-3.6" />
+    </>
+  ),
 }

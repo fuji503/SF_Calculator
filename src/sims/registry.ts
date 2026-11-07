@@ -37,6 +37,13 @@ export const simModules: readonly SimModuleMeta[] = [
     icon: 'reactor',
     specFile: '原子炉・遮蔽モジュール仕様書1(新規).md',
   },
+  {
+    id: 'crater',
+    name: 'クレータ造成（隕石・核爆発）',
+    summary: '地球・月・火星で、隕石を落とすか核爆発を起こしてクレータを作るときの、クレータの大きさと形、噴出物の広がり、危険な範囲を計算します。',
+    icon: 'crater',
+    specFile: 'クレータ造成モジュール仕様書1(新規).md',
+  },
 ]
 
 export function findSimModule(id: string): SimModuleMeta | undefined {

@@ -10,6 +10,7 @@ export const simLoaders: Readonly<Record<string, () => Promise<SimDefinition>>> 
   sunshade: () => import('./sunshade/definition.ts').then((m) => m.sunshade),
   'power-thermal': () => import('./power-thermal/definition.ts').then((m) => m.powerThermal),
   'reactor-shield': () => import('./reactor-shield/definition.ts').then((m) => m.reactorShield),
+  crater: () => import('./crater/definition.ts').then((m) => m.crater),
 }
 
 const cache = new Map<string, Promise<SimDefinition>>()

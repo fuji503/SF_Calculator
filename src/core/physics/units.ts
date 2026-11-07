@@ -132,6 +132,15 @@ export const U = {
   kgm3: { id: 'kg/m3', label: 'kg/m³', factor: 1 },
   tm3: { id: 't/m3', label: 't/m³', factor: 1e3 },
   hourOnly: { id: 'h', label: '時間', factor: 3600 },
+  Pa: { id: 'Pa', label: 'Pa', factor: 1 },
+  kPa: { id: 'kPa', label: 'kPa', factor: 1e3 },
+  MPa: { id: 'MPa', label: 'MPa', factor: 1e6 },
+  GPa: { id: 'GPa', label: 'GPa', factor: 1e9 },
+  /** TNT 換算（1 kt = 4.184×10¹² J） */
+  tTNT: { id: 't TNT', label: 't', factor: 4.184e9 },
+  ktTNT: { id: 'kt TNT', label: 'kt', factor: 4.184e12 },
+  MtTNT: { id: 'Mt TNT', label: 'Mt', factor: 4.184e15 },
+  km3: { id: 'km3', label: 'km³', factor: 1e9 },
 } as const satisfies Record<string, UnitOption>
 
 /** 単位を1つだけ持つ（選べない）パラメータ用 */
@@ -194,4 +203,8 @@ export const unitDefs = {
   massDensity: { options: [U.kgm3, U.tm3], defaultId: 't/m3' },
   hoursPerYear: { options: [{ id: 's', label: 's/年', factor: 1 }, { id: 'h', label: '時間/年', factor: 3600 }], defaultId: 'h' },
   gravParam: fixedUnit('m³/s²'),
+  pressure: { options: [U.Pa, U.kPa, U.MPa, U.GPa] },
+  /** 核爆発の出力・衝突のエネルギーの TNT 換算 */
+  tnt: { options: [U.J, U.tTNT, U.ktTNT, U.MtTNT], defaultId: 'kt TNT' },
+  volumeLarge: { options: [U.m3, U.km3] },
 } as const satisfies Record<string, UnitDef>
