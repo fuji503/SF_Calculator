@@ -2,6 +2,7 @@ import { SOLAR_CONSTANT_1AU } from '../../core/physics/constants.ts'
 import { fixedUnit, unitDefs } from '../../core/physics/units.ts'
 import type { ComputeResult, Inputs, OutputValue, SimDefinition } from '../types.ts'
 import {
+  CHEMICAL_TYPES,
   computeLaser,
   LASER_PRESETS,
   TAU_PRESETS,
@@ -13,7 +14,8 @@ import {
 } from './model.ts'
 
 const DEG = Math.PI / 180
-const isChemical = (i: Inputs) => i.laser_type === 'chemical'
+const isChemical = (i: Inputs) => CHEMICAL_TYPES.has(String(i.laser_type))
+const isCoil = (i: Inputs) => i.laser_type === 'coil'
 const isSolar = (i: Inputs) => i.laser_type === 'solar_pumped'
 const inAir = (i: Inputs) => i.atmosphere !== 'vacuum'
 const turbulent = (i: Inputs) => inAir(i) && i.placement === 'emitter_surface'
@@ -42,11 +44,13 @@ export const laserBeaming: SimDefinition = {
       key: 'laser_type',
       group: 'laser',
       label: '発振器の方式',
-      description: '選ぶと、波長・変換効率・ビーム品質係数などに目安の値が入る（大気を通るときは光学的厚さも）',
+      description:
+        '選ぶと、波長・変換効率・ビーム品質係数などに目安の値が入る（大気を通るときは光学的厚さも）。化学レーザの DF は、フッ素（三フッ化窒素）と重水素を燃やして光を出す（米海軍の MIRACL など）。COIL は、塩素と過酸化水素の反応でできる励起した酸素で、ヨウ素を光らせる（米空軍のボーイング 747 搭載のエアボーンレーザ YAL-1A）',
       options: [
         { value: 'fiber', label: '固体/ファイバーレーザ（約1 µm）' },
         { value: 'co2', label: '気体レーザ（CO2、10.6 µm）' },
-        { value: 'chemical', label: '化学レーザ（DF、3.8 µm）※参考値' },
+        { value: 'chemical', label: '化学レーザ（DF、3.8 µm。燃料はフッ素と重水素）※参考値' },
+        { value: 'coil', label: '化学レーザ（COIL、1.315 µm。エアボーンレーザ）※参考値' },
         { value: 'fel', label: '自由電子レーザ（FEL）※参考値' },
         { value: 'solar_pumped', label: '太陽光励起レーザ ※参考値' },
       ],
@@ -113,7 +117,7 @@ export const laserBeaming: SimDefinition = {
       label: '変換効率',
       symbol: '\\eta',
       description:
-        '電気駆動では 電力→光、化学では 反応エネルギー→光、太陽光励起では 集光した太陽光→光 の効率。大きいほど必要な入力と排熱が減る。方式を選ぶと入る値：ファイバー 40%（実機 30〜50%）、CO2 15%（10〜20%）、化学（DF）2%、自由電子レーザ 10%（参考値）、太陽光励起 3%（参考値）',
+        '電気駆動では 電力→光、化学では 反応エネルギー→光、太陽光励起では 集光した太陽光→光 の効率。大きいほど必要な入力と排熱が減る。方式を選ぶと入る値：ファイバー 40%（実機 30〜50%）、CO2 15%（10〜20%）、化学（DF）1%、化学（COIL）8.9%、自由電子レーザ 10%（参考値）、太陽光励起 3%（参考値）',
       unit: unitDefs.fraction,
       default: LASER_PRESETS.fiber.eta,
       min: 0,
@@ -127,7 +131,7 @@ export const laserBeaming: SimDefinition = {
       group: 'laser',
       label: '反応エネルギー密度',
       symbol: 'E_{chem}',
-      description: '燃料1 kgの反応で出るエネルギー',
+      description: '燃料1 kgの反応で出るエネルギー。変換効率を掛けた値が、燃料1 kg から取り出せる光になる（DF 100 kJ/kg、COIL 約105 kJ/kg）',
       unit: unitDefs.specificEnergy,
       default: 10e6,
       min: 0,
@@ -431,9 +435,11 @@ export const laserBeaming: SimDefinition = {
       label: '燃料の総量（運転時間あたり）',
       symbol: 'M_{fuel}',
       unit: { ...unitDefs.mass, defaultId: 't' },
-      description: '燃料消費率 × 運転時間。補給する燃料の量の目安',
+      description:
+        '燃料消費率 × 運転時間。補給する燃料の量の目安。DF の燃料は、三フッ化窒素（フッ素の元）、エチレン、重水素と、薄めるためのヘリウム（質量の割合は公開値がないので出さない）。COIL は反応式の質量比で内訳の表を出す（BHP を溶かす水と、薄めるためのヘリウム、少量のヨウ素は含めない）',
       visibleWhen: isChemical,
     },
+    { key: 'fuel_table', kind: 'table', label: '燃料の内訳（COIL）', visibleWhen: isCoil },
     { key: 'Q_chem_total', kind: 'number', label: '反応熱の総量（排気分を含む）', symbol: 'Q_{chem,total}', unit: unitDefs.power, visibleWhen: isChemical },
     { key: 'A_collector', kind: 'number', label: '要求集光面積', symbol: 'A_{collector}', unit: unitDefs.area, visibleWhen: isSolar },
     { key: 'I_sun', kind: 'number', label: '太陽定数', symbol: 'I_\\odot', unit: unitDefs.irradiance, visibleWhen: isSolar },
@@ -462,9 +468,25 @@ export const laserBeaming: SimDefinition = {
         if (typeof v === 'number') outputs[k] = { kind: 'number', value: v }
       }
     }
+    // COIL の燃料の内訳（反応式 Cl2 + H2O2 + 2KOH の質量比。溶かす水とヘリウムは含めない）
+    const M_fuel = r.outputs?.M_fuel
+    if (inputs.laser_type === 'coil' && M_fuel !== undefined) {
+      outputs.fuel_table = {
+        kind: 'table',
+        columns: ['燃料', '質量 [t]', '割合'],
+        rows: COIL_FUEL.map(([name, f]) => [name, (M_fuel * f) / 1000, `${(f * 100).toFixed(1)}%`]),
+      }
+    }
     return { outputs, warnings: r.warnings, errors: r.errors }
   },
 }
+
+/** COIL の燃料の質量の割合（Cl2 70.90、H2O2 34.01、2KOH 112.21 g/mol） */
+const COIL_FUEL: [string, number][] = [
+  ['塩素（Cl2）', 70.9 / 217.12],
+  ['過酸化水素（H2O2）', 34.01 / 217.12],
+  ['水酸化カリウム（KOH）', 112.21 / 217.12],
+]
 
 function toLaserInputs(i: Inputs): LaserInputs {
   const num = (k: string) => Number(i[k])

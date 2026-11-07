@@ -38,7 +38,7 @@ describe('プリセット（§3.4）', () => {
   it('化学レーザを選ぶと燃料消費率を出す', () => {
     const i = pick(defaultInputs(laserBeaming), 'laser_type', 'chemical')
     const r = evaluate(laserBeaming, i)
-    expect(r.outputs.m_dot).toEqual({ kind: 'number', value: 5 })
+    expect(r.outputs.m_dot).toEqual({ kind: 'number', value: 10 })
   })
 })
 
@@ -63,6 +63,23 @@ describe('届けたい量からの逆算', () => {
       const g = defaultGraph(laserBeaming, i)
       expect(xCandidates(laserBeaming, i).map((p) => p.key)).toContain(g.x)
       expect(yCandidates(laserBeaming, i).map((o) => o.key)).toContain(g.y[0])
+    }
+  })
+})
+
+describe('COIL（エアボーンレーザ）', () => {
+  it('選ぶと 1.315 µm の化学レーザになり、燃料の内訳の表を出す', () => {
+    const i = pick(defaultInputs(laserBeaming), 'laser_type', 'coil')
+    expect(i.lambda).toBe(1.315e-6)
+    const r = evaluate(laserBeaming, i)
+    expect(r.errors).toEqual([])
+    const t = r.outputs.fuel_table
+    expect(t?.kind).toBe('table')
+    if (t?.kind === 'table') {
+      expect(t.rows.map((row) => row[0])).toEqual(['塩素（Cl2）', '過酸化水素（H2O2）', '水酸化カリウム（KOH）'])
+      const total = t.rows.reduce((s, row) => s + Number(row[1]), 0)
+      const fuel = r.outputs.M_fuel
+      expect(fuel?.kind === 'number' && total * 1000).toBeCloseTo(fuel?.kind === 'number' ? fuel.value : 0, 6)
     }
   })
 })

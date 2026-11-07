@@ -5,7 +5,10 @@
 import { C_LIGHT, SOLAR_CONSTANT_1AU } from '../../core/physics/constants.ts'
 import type { Message } from '../types.ts'
 
-export type LaserType = 'fiber' | 'co2' | 'chemical' | 'fel' | 'solar_pumped'
+export type LaserType = 'fiber' | 'co2' | 'chemical' | 'coil' | 'fel' | 'solar_pumped'
+
+/** 化学レーザ（燃料を燃やして光を出す方式） */
+export const CHEMICAL_TYPES: ReadonlySet<string> = new Set(['chemical', 'coil'])
 export type Atmosphere = 'vacuum' | 'earth' | 'mars' | 'titan'
 export type Placement = 'emitter_surface' | 'target_surface'
 
@@ -110,16 +113,20 @@ export const LASER_PRESETS: Record<
 > = {
   fiber: { lambda: 1.07e-6, eta: 0.4, M2: 1.2 },
   co2: { lambda: 10.6e-6, eta: 0.15, M2: 1.5 },
-  chemical: { lambda: 3.8e-6, eta: 0.02, M2: 2.0, E_chem: 10e6, f_exhaust: 0.9, k_aux: 0.05 },
+  // DF：燃料1 kg（ヘリウムを含む全流量）あたりの光 η·E_chem = 100 kJ/kg（測定例 80〜130 J/g の中ほど）
+  chemical: { lambda: 3.8e-6, eta: 0.01, M2: 2.0, E_chem: 10e6, f_exhaust: 0.9, k_aux: 0.05 },
+  // COIL：Cl2 + H2O2 + 2KOH の反応熱 254.6 kJ/mol を、反応物 217.2 g/mol で割った値。
+  // 化学効率 25%（塩素1分子あたり光子0.25個、1.315 µm）で η = 0.25 × 90.99 / 254.6
+  coil: { lambda: 1.315e-6, eta: 0.0893, M2: 1.5, E_chem: 1.172e6, f_exhaust: 0.9, k_aux: 0.05 },
   fel: { lambda: 1.6e-6, eta: 0.1, M2: 1.0 },
   solar_pumped: { lambda: 1.06e-6, eta: 0.03, M2: 10 },
 }
 
 /** 大気の光学的厚さ τ（鉛直、晴天時）のプリセット（§3.4） */
 export const TAU_PRESETS: Record<Exclude<Atmosphere, 'vacuum'>, Record<LaserType, number>> = {
-  earth: { fiber: 0.15, co2: 1.0, chemical: 0.3, fel: 0.1, solar_pumped: 0.15 },
-  mars: { fiber: 0.5, co2: 50, chemical: 0.3, fel: 0.45, solar_pumped: 0.5 },
-  titan: { fiber: 2, co2: 3, chemical: 5, fel: 2, solar_pumped: 2 },
+  earth: { fiber: 0.15, co2: 1.0, chemical: 0.3, coil: 0.15, fel: 0.1, solar_pumped: 0.15 },
+  mars: { fiber: 0.5, co2: 50, chemical: 0.3, coil: 0.5, fel: 0.45, solar_pumped: 0.5 },
+  titan: { fiber: 2, co2: 3, chemical: 5, coil: 2, fel: 2, solar_pumped: 2 },
 }
 
 /** 大気ゆらぎによる広がり角 θ_turb のプリセット（発振器が地表、補償光学なし。§3.4） */
@@ -132,7 +139,7 @@ export const TURB_PRESETS: Record<Exclude<Atmosphere, 'vacuum'>, number> = {
 export function computeLaser(p: LaserInputs): LaserResult {
   const errors: Message[] = []
   const warnings: Message[] = []
-  const chemical = p.laser_type === 'chemical'
+  const chemical = CHEMICAL_TYPES.has(p.laser_type)
   const solar = p.laser_type === 'solar_pumped'
   const inAir = p.atmosphere !== 'vacuum'
 

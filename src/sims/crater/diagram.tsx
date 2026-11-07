@@ -1,6 +1,15 @@
-import { formatNumber } from '../../core/physics/format.ts'
+import { formatGrouped } from '../../core/physics/format.ts'
 import type { DiagramProps } from '../types.ts'
 import { IMPACTORS, KT_TNT, type ImpactorId } from './data.ts'
+
+/**
+ * 図の文字は小さいので、小数1桁で書く（2.400 と 2400 を見間違えないように）。
+ * 0.1 未満は有効数字2桁、1000 以上は3桁ごとに区切る
+ */
+function formatNumber(v: number): string {
+  if (v !== 0 && Math.abs(v) < 0.1) return v.toPrecision(2).replace('-', '−')
+  return formatGrouped(v, 1)
+}
 
 /** 長さを、1000 m 以上なら km で書く */
 function len(m: number): string {

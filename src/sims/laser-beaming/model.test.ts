@@ -89,7 +89,7 @@ describe('仕様書 §8 のテストケース', () => {
   })
 
   it('T4：化学（DF）', () => {
-    const o = outputsOf(base('chemical', { D: 2, sigma_jitter: 0.2 * URAD, d: 1000e3 }))
+    const o = outputsOf(base('chemical', { eta: 0.02, D: 2, sigma_jitter: 0.2 * URAD, d: 1000e3 }))
     expect4(o.D_spot, 9.306)
     expect4(o.E_target, 1.271e4)
     expect4(o.m_dot, 5)
@@ -188,7 +188,7 @@ describe('届けたい量からの逆算（§4.6）', () => {
   })
 
   it('化学レーザの燃料消費率も、逆算した出力から出す（T4）', () => {
-    const t4 = { lambda: 3.8e-6, M2: 2.0, D: 2, sigma_jitter: 0.2 * URAD, d: 1_000e3 }
+    const t4 = { lambda: 3.8e-6, M2: 2.0, eta: 0.02, D: 2, sigma_jitter: 0.2 * URAD, d: 1_000e3 }
     const inv = outputsOf(base('chemical', { ...t4, solve: true, P_goal: 1e6 * (1 - Math.exp(-2)) }))
     expect4(inv.m_dot!, 5)
     expect4(inv.M_fuel!, 18_000)
@@ -237,5 +237,21 @@ describe('受光面に入る割合（§4.7）', () => {
 
   it('受光面の直径は正の値', () => {
     expect(computeLaser(base('fiber', { k_rx: 0 })).errors.map((m) => m.code)).toContain('positive')
+  })
+})
+
+describe('化学レーザのプリセット（DF と COIL）', () => {
+  it('DF：燃料1 kg（ヘリウムを含む）から 100 kJ の光', () => {
+    const o = outputsOf(base('chemical'))
+    expect4(o.m_dot!, 10)
+    expect4(o.M_fuel!, 36_000)
+  })
+
+  it('COIL：反応式から、燃料1 kg あたり約 105 kJ の光（化学効率 25%）', () => {
+    const pre = LASER_PRESETS.coil
+    expect4(pre.eta * pre.E_chem!, 1.047e5)
+    const o = outputsOf(base('coil'))
+    expect4(o.m_dot!, 9.555)
+    expect(o.P_in).toBeCloseTo(0.05 * 1e6, 6)
   })
 })
