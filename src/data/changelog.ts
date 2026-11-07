@@ -16,6 +16,14 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.3.1',
+    date: '2026-11-07',
+    changes: [
+      '「クレータ造成」：衝突体の材質に「氷球（すき間のない氷）」と「コンクリート」を追加し、「タングステン」を「タングステン球」にした。鉄の球（鋼）は鉄隕石とほぼ同じ密度なので、鉄隕石の選択肢に「鋼の球もほぼ同じ」と書き添えた。',
+      '「クレータ造成」：断面図の隕石のそばに、直径と材質を書くようにした。',
+    ],
+  },
+  {
     version: '1.3.0',
     date: '2026-11-07',
     changes: [

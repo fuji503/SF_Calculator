@@ -107,10 +107,12 @@ export const DEFAULT_GROUND: Record<BodyId, string> = { moon: 'mare_regolith', m
 // ---------------------------------------------------------------------------
 // 衝突体（§3.4、§4.4）
 
-export type ImpactorId = 'iron' | 'stony' | 'carbonaceous' | 'icy' | 'tungsten'
+export type ImpactorId = 'iron' | 'stony' | 'carbonaceous' | 'icy' | 'ice_ball' | 'concrete' | 'tungsten'
 
 export interface ImpactorPreset {
   label: string
+  /** 断面図に書く短い名前 */
+  short: string
   delta: number
   hugoniot: HugoniotId
   /** 溶け始め、完全に溶ける、蒸発し始めの圧力 [Pa]。null は資料なし */
@@ -118,21 +120,24 @@ export interface ImpactorPreset {
 }
 
 export const IMPACTORS: Record<ImpactorId, ImpactorPreset> = {
-  iron: { label: '鉄（鉄隕石）', delta: 7800, hugoniot: 'iron', thresholds: [242e9, 389e9, 800e9] },
-  stony: { label: '石質（S型小惑星、普通コンドライト）', delta: 3000, hugoniot: 'diabase', thresholds: [135e9, 149e9, 186e9] },
-  carbonaceous: { label: '炭素質（C型小惑星）※参考値', delta: 1800, hugoniot: 'serpentinite', thresholds: [135e9, 149e9, 186e9] },
-  icy: { label: '氷（彗星）※参考値', delta: 800, hugoniot: 'ice', thresholds: [0.4e9, 3e9, 4.5e9] },
-  tungsten: { label: 'タングステン（人工物）', delta: 19_300, hugoniot: 'tungsten', thresholds: null },
+  iron: { label: '鉄（鉄隕石。鋼の球もほぼ同じ）', short: '鉄', delta: 7800, hugoniot: 'iron', thresholds: [242e9, 389e9, 800e9] },
+  stony: { label: '石質（S型小惑星、普通コンドライト）', short: '石質', delta: 3000, hugoniot: 'diabase', thresholds: [135e9, 149e9, 186e9] },
+  carbonaceous: { label: '炭素質（C型小惑星）※参考値', short: '炭素質', delta: 1800, hugoniot: 'serpentinite', thresholds: [135e9, 149e9, 186e9] },
+  icy: { label: '氷（彗星。すき間が多い）※参考値', short: '彗星の氷', delta: 800, hugoniot: 'ice', thresholds: [0.4e9, 3e9, 4.5e9] },
+  ice_ball: { label: '氷球（すき間のない氷）', short: '氷球', delta: 917, hugoniot: 'ice', thresholds: [0.4e9, 3e9, 4.5e9] },
+  concrete: { label: 'コンクリート（人工物）※参考値', short: 'コンクリート', delta: 2300, hugoniot: 'concrete', thresholds: null },
+  tungsten: { label: 'タングステン球（人工物）', short: 'タングステン球', delta: 19_300, hugoniot: 'tungsten', thresholds: null },
 }
 
-export type HugoniotId = 'iron' | 'diabase' | 'serpentinite' | 'ice' | 'tungsten' | 'dry_sand' | 'permafrost' | 'sandstone' | 'granite'
+export type HugoniotId = 'iron' | 'diabase' | 'serpentinite' | 'ice' | 'concrete' | 'tungsten' | 'dry_sand' | 'permafrost' | 'sandstone' | 'granite'
 
-/** 線形の衝撃波速度の式 Us = C + s·up の値（Melosh 2011 表6.1。タングステンは Marsh 1980） */
+/** 線形の衝撃波速度の式 Us = C + s·up の値（Melosh 2011 表6.1。タングステンは Marsh 1980、コンクリートは 21 GPa までの実験の当てはめ（参考値）） */
 export const HUGONIOT: Record<HugoniotId, { rho: number; C: number; s: number }> = {
   iron: { rho: 7680, C: 3800, s: 1.58 },
   diabase: { rho: 3000, C: 4480, s: 1.19 },
   serpentinite: { rho: 2800, C: 2730, s: 1.76 },
   ice: { rho: 915, C: 1317, s: 1.526 },
+  concrete: { rho: 2300, C: 2350, s: 1.66 },
   tungsten: { rho: 19_220, C: 4030, s: 1.24 },
   dry_sand: { rho: 1600, C: 1700, s: 1.31 },
   permafrost: { rho: 1960, C: 2510, s: 1.29 },

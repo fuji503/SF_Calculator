@@ -1,6 +1,6 @@
 import { formatNumber } from '../../core/physics/format.ts'
 import type { DiagramProps } from '../types.ts'
-import { KT_TNT } from './data.ts'
+import { IMPACTORS, KT_TNT, type ImpactorId } from './data.ts'
 
 /** 長さを、1000 m 以上なら km で書く */
 function len(m: number): string {
@@ -72,7 +72,8 @@ export default function CraterDiagram({ inputs, outputs }: DiagramProps) {
   // 隕石の向き（水平からの角度）
   const theta = Number(inputs.theta)
   const th = Number.isFinite(theta) ? Math.min(Math.max(theta, 5 * (Math.PI / 180)), Math.PI / 2) : Math.PI / 4
-  const L = 120
+  // 矢印の長さ：急な角度でも隕石が図の上に収まり、浅い角度でも縁から離れるようにする
+  const L = Math.min(170, (GROUND - 22) / Math.sin(th))
   const sx = CX - L * Math.cos(th)
   const sy = GROUND - 8 - L * Math.sin(th)
   const ex = CX - 26 * Math.cos(th)
@@ -81,6 +82,18 @@ export default function CraterDiagram({ inputs, outputs }: DiagramProps) {
   // 核爆発の位置（深さは模式的に、クレータの深さとの比で置く）
   const zb = num('z_b') ?? Number(inputs.z_b)
   const burstY = !impact ? GROUND + (crater && d > 0 ? Math.min(1.4, zb / d) * (BOTTOM - GROUND) : Math.min(60, zb > 0 ? 40 : 0)) : 0
+
+  // 隕石の大きさと材質（密度を手で変えたときは密度を書く）
+  const preset = IMPACTORS[String(inputs.impactor) as ImpactorId]
+  const delta = Number(inputs.delta)
+  const material = preset && preset.delta === delta ? preset.short : `密度 ${formatNumber(delta)} kg/m³`
+  const L0 = num('L0') ?? Number(inputs.L0)
+  // 隕石のそばの文字は、隕石の左に置く。左に入りきらないとき（角度が浅いとき）は、隕石の上に左寄せで置く
+  const leftSide = sx - 14 > 170
+  const tx = leftSide ? sx - 14 : 8
+  const ty1 = leftSide ? Math.max(sy - 4, 14) : Math.max(sy - 34, 14)
+  const ty2 = ty1 + 15
+  const anchor = leftSide ? 'end' : 'start'
 
   const label = 'fill-slate-200 text-[12px]'
   const sub = 'fill-slate-400 text-[11px]'
@@ -126,7 +139,7 @@ export default function CraterDiagram({ inputs, outputs }: DiagramProps) {
             </text>
 
             {/* 縁の高さ */}
-            <text x={left - 6} y={GROUND - RIM_H - 6} textAnchor="end" className={sub}>
+            <text x={left - 6} y={GROUND + 16} textAnchor="end" className={sub}>
               縁の高さ {thick(h)}
             </text>
 
@@ -146,7 +159,10 @@ export default function CraterDiagram({ inputs, outputs }: DiagramProps) {
           <>
             <line x1={sx} y1={sy} x2={ex} y2={ey} className="stroke-amber-400" strokeWidth={2} markerEnd="url(#crater-arrow-hot)" />
             <circle cx={sx} cy={sy} r={7} className="fill-amber-300" />
-            <text x={Math.max(8, sx - 10)} y={Math.max(14, sy - 12)} className={label}>
+            <text x={tx} y={ty1} textAnchor={anchor} className={label}>
+              直径 {len(L0)}・{material}
+            </text>
+            <text x={tx} y={ty2} textAnchor={anchor} className={label}>
               速さ {formatNumber(Number(inputs.v0) / 1000)} km/s・角度 {formatNumber(th / (Math.PI / 180))}°
             </text>
           </>

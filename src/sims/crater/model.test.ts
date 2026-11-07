@@ -101,6 +101,24 @@ describe('クレータの大きさ（隕石、§4.2）', () => {
   })
 })
 
+describe('衝突体の材質', () => {
+  it('コンクリートとタングステン球は、最大の圧力だけを出す（溶ける圧力の資料なし）', () => {
+    for (const impactor of ['concrete', 'tungsten'] as const) {
+      const o = outputsOf(base({ impactor, delta: impactor === 'concrete' ? 2300 : 19_300 }))
+      expect(o.P_peak).toBeGreaterThan(0)
+      expect(o.impactor_state).toBeUndefined()
+    }
+  })
+
+  it('氷球は、同じ大きさの彗星の氷より重く、クレータが大きい', () => {
+    const ball = outputsOf(base({ impactor: 'ice_ball', delta: 917 }))
+    const comet = outputsOf(base({ impactor: 'icy', delta: 800 }))
+    expect(ball.D_rim).toBeGreaterThan(comet.D_rim)
+    // 2.4 km/s でレゴリスに当たると 0.4〜3 GPa（氷の溶け始めと完全に溶ける圧力の間）
+    expect(ball.impactor_state).toBe('一部が溶ける（前の方）')
+  })
+})
+
 describe('大気への突入（§4.1）', () => {
   it('T4 チェリャビンスクは空中爆発する', () => {
     const e = atmosphericEntry(19, 3300, 19e3, 18 * DEG, 1, 8000, 9.81)
