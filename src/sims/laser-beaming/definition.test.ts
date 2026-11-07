@@ -50,7 +50,9 @@ describe('届けたい量からの逆算', () => {
     expect(paramRole(pOpt, i)).toBe('output')
     const r = evaluate(laserBeaming, i)
     expect(r.errors).toEqual([])
-    expect(r.outputs.P_opt).toEqual({ kind: 'number', value: 2e6 })
+    // 初期値は真空・受光面はスポットと同じ直径なので、こぼれる約14%を見込む
+    const pOptOut = r.outputs.P_opt
+    expect(pOptOut?.kind === 'number' && pOptOut.value).toBeCloseTo(2e6 / (1 - Math.exp(-2)), 0)
     expect(defaultGraph(laserBeaming, i)).toMatchObject({ x: 'd', y: ['P_opt'] })
   })
 

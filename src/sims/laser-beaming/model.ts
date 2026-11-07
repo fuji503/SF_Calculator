@@ -52,6 +52,8 @@ export interface LaserInputs {
   z: number
   /** 大気ゆらぎによる広がり角（直径） [rad] */
   theta_turb: number
+  /** 受光面の直径（実効スポット直径の何倍か） */
+  k_rx: number
 }
 
 export interface LaserOutputs {
@@ -61,7 +63,16 @@ export interface LaserOutputs {
   D_spot: number
   P_in: number
   Q_waste: number
+  /** 大気を通ったあと目標に届く光の合計（受光面の外へこぼれる分を含む） */
   P_target: number
+  /** 受光面に入る光の合計 */
+  P_rx: number
+  /** 受光面に入る光の割合 */
+  f_rx: number
+  D_rx: number
+  A_rx: number
+  /** スポット中心の到達放射照度 */
+  E_peak: number
   lambda_out: number
   t_delay: number
   sun_ratio: number
@@ -121,7 +132,7 @@ export function computeLaser(p: LaserInputs): LaserResult {
 
   // --- 入力チェック（§6）
   const goalKey = !p.solve ? 'P_opt' : p.goal_by_irradiance ? 'E_goal' : 'P_goal'
-  for (const k of [goalKey, 'lambda', 'D', 'd'] as const) {
+  for (const k of [goalKey, 'lambda', 'D', 'd', 'k_rx'] as const) {
     if (!(p[k] > 0)) errors.push({ code: 'positive', keys: [k] })
   }
   if (!(p.eta > 0 && p.eta <= 1)) errors.push({ code: 'eta-range', keys: ['eta'] })
@@ -151,12 +162,20 @@ export function computeLaser(p: LaserInputs): LaserResult {
   const D_spot = Math.sqrt(D_diff ** 2 + D_jitter ** 2 + D_turb ** 2)
   const A_spot = (Math.PI / 4) * D_spot ** 2
 
+  // --- §4.7 受光面に入る割合（ビームの形をガウス分布で近似。直径 4σ の円に 1 − e⁻² ≈ 86%）
+  const D_rx = p.k_rx * D_spot
+  const A_rx = (Math.PI / 4) * D_rx ** 2
+  const f_rx = 1 - Math.exp(-2 * p.k_rx ** 2)
+
   // --- §4.3 大気透過率、§4.4 到達電力と放射照度、§4.5 遅延時間
   const T_atm = inAir ? Math.exp(-p.tau / Math.cos(p.z)) : 1
-  // §4.6 逆算：届けたい量から目標光出力を決める（スポット直径と透過率は目標光出力によらない）
-  const P_target = !p.solve ? p.P_opt * T_atm : p.goal_by_irradiance ? p.E_goal * A_spot : p.P_goal
-  const P_opt = p.solve ? P_target / T_atm : p.P_opt
-  const E_target = P_target / A_spot
+  // §4.6 逆算：届けたい量から目標光出力を決める（スポット直径・透過率・割合は目標光出力によらない）
+  const P_rx = !p.solve ? p.P_opt * T_atm * f_rx : p.goal_by_irradiance ? p.E_goal * A_rx : p.P_goal
+  const P_opt = p.solve ? P_rx / (T_atm * f_rx) : p.P_opt
+  const P_target = P_opt * T_atm
+  const E_target = P_rx / A_rx
+  // ガウス分布の中心の強さ：P/(2πσ²)、D_spot = 4σ
+  const E_peak = (2 * P_target) / A_spot
   const t_delay = p.d / C_LIGHT
   if (p.solve && !(T_atm > 0)) return { outputs: null, warnings, errors: [{ code: 'no-light', keys: ['tau'] }] }
 
@@ -199,6 +218,11 @@ export function computeLaser(p: LaserInputs): LaserResult {
       P_in,
       Q_waste,
       P_target,
+      P_rx,
+      f_rx,
+      D_rx,
+      A_rx,
+      E_peak,
       lambda_out: p.lambda,
       t_delay,
       sun_ratio: E_target / SOLAR_CONSTANT_1AU,
