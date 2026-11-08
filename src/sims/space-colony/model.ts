@@ -112,7 +112,7 @@ export interface HeightRow {
 export interface Member {
   label: string
   count: number
-  /** 1本の先と根元の断面積 */
+  /** 1本の外側の端（A_tip）と中心側の端（A_root）の断面積 */
   A_tip: number
   A_root: number
   /** 1本の質量 */
@@ -162,6 +162,10 @@ export interface ColonyOutputs {
   R_s?: number
   g_edge?: number
   L_m?: number
+  /** ダンベルのモジュールの中心の半径（回転の半径） */
+  R_cm?: number
+  /** シリンダの全長（半球のふたを含む）÷ 外壁の直径 */
+  LD?: number
   g_end?: number
   tilt?: number
   R_hull: number
@@ -175,7 +179,7 @@ export interface ColonyOutputs {
   /** スポークの列の数と実際の間隔（シリンダ・球） */
   n_rows?: number
   s_zr?: number
-  /** スポーク・テザー1本の先の力 */
+  /** スポーク・テザー1本の外側の端の力 */
   F_spoke?: number
   /** スポークの長さの調整量（正：その分だけ短く作って初めの張力をかける） */
   dl_spoke?: number
@@ -337,11 +341,11 @@ export function radialMember(
   if (!(len > 0) || !(F >= 0) || !(sa > 0)) return undefined
   const w2 = omega ** 2
   const k = (rho * w2) / (2 * sa)
-  // 先の断面積に対する形 a(r)（応力が一定は解析解、ほかは決めた形）
+  // 外側の端の断面積に対する形 a(r)（応力が一定は解析解、ほかは決めた形）
   const shape = (r: number) => (taper === 'const' ? Math.exp(k * (r_out ** 2 - r ** 2)) : taper === 'linear' ? 1 + (k_tp - 1) * ((r_out - r) / len) : 1)
   const n = 2000
   const h = len / n
-  // 先から根元へ：G(r) = ρω²∫_r^{r_out} a(s) s ds / a(r)（先の断面積に依らない応力の部分）
+  // 外側から中心側へ：G(r) = ρω²∫_r^{r_out} a(s) s ds / a(r)（外側の端の断面積に依らない応力の部分）
   let acc = 0
   let need = 0
   const G: number[] = []
@@ -662,6 +666,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
       }
       selfMax = fs < 1 ? sa / p.rho / (1 - fs) : Infinity
       out.L = L
+      out.LD = (L + (hemi ? 2 * R_h : 0)) / (2 * R_h)
       out.t_cap = t_cap
       pHi = R_h
       break
@@ -880,6 +885,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
       out.F_spoke = F
       out.M_air = M_air
       out.L_m = L_m
+      out.R_cm = R_cm
       out.g_end = (p.g_f * Math.hypot(p.R_f, L_m / 2)) / p.R_f
       out.tilt = Math.atan(L_m / 2 / p.R_f)
       if (out.tilt > (5 * Math.PI) / 180) warnings.push({ code: 'tilt', keys: ['A_f', 'w_m'], params: { deg: (out.tilt * 180) / Math.PI } })

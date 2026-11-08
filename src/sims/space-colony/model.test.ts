@@ -349,6 +349,9 @@ describe('T3 スポークの割合（段階2）', () => {
     const o = computeColony(base()).outputs!
     expect4(o.t_hull * 1000, 113.6, 1e-3)
     expect(o.members).toEqual([])
+    // L/D：全長（半球のふたを含む 325 + 500 m）÷ 直径 500 m
+    expect4(o.LD!, (325 + 500) / 500)
+    expect4(computeColony(base({ cap: 'spine' })).outputs!.LD!, 325 / 500)
   })
 })
 

@@ -471,7 +471,7 @@ const inputs: ParamDef[] = [
     group: 'spoke',
     label: 'ハブの半径',
     symbol: 'r_{hub}',
-    description: 'スポーク・テザーの根元、中心の軸の半径',
+    description: 'スポーク・テザーの中心側の端と、中心の軸の半径',
     unit: length,
     default: 5,
     min: 0,
@@ -483,7 +483,7 @@ const inputs: ParamDef[] = [
     group: 'spoke',
     label: 'スポーク・テザーのテーパー',
     description:
-      '応力が一定：根元ほど太くして、どこでも許容応力にする（最も軽い）。なし：太さが一定（根元の応力で決まり、重い。速いと作れない）。直線：根元と先の太さの比を決めて直線で細くする',
+      '中心側（ハブ側）の端ほど大きな力を受ける（外側の荷重に、途中の部分の遠心力が足される）。応力が一定：中心側ほど太くして、どこでも許容応力にする（最も軽い）。なし：太さが一定（中心側の端の応力で決まり、重い。速いと作れない）。直線：中心側と外側の太さの比を決めて、直線で細くする',
     options: [
       { value: 'const', label: '応力が一定' },
       { value: 'none', label: 'なし（太さが一定）' },
@@ -496,7 +496,7 @@ const inputs: ParamDef[] = [
     kind: 'number',
     key: 'k_tp',
     group: 'spoke',
-    label: '根元と先の太さ（断面積）の比',
+    label: '中心側と外側の太さ（断面積）の比',
     symbol: 'k_{tp}',
     unit: fixedUnit(''),
     default: 1.2,
@@ -808,7 +808,22 @@ const outputs: OutputDef[] = [
   { key: 'L_m', kind: 'number', group: 'geom', label: 'モジュールの長さ（円筒の部分）', symbol: 'L_m', unit: length, visibleWhen: isDumbbell },
   { key: 'g_end', kind: 'number', group: 'geom', label: '床の端の重力', unit: gravity, visibleWhen: isDumbbell, description: '床は平らなので、端ほど中心から遠く、重力が少し強い' },
   { key: 'tilt', kind: 'number', group: 'geom', label: '床の端の傾き', unit: unitDefs.angleDeg, visibleWhen: isDumbbell },
+  { key: 'D_hull', kind: 'number', group: 'geom', label: '外壁の直径', unit: length, visibleWhen: shapeIs('cylinder', 'sphere') },
+  {
+    key: 'LD',
+    kind: 'number',
+    group: 'geom',
+    label: '長さと直径の比（L/D）',
+    unit: fixedUnit(''),
+    visibleWhen: isCyl,
+    description: '全長（半球のふたを含む）÷ 外壁の直径。細長いほど、回転の軸がずれやすい（正確な判定は、快適さの判定の慣性モーメントの比）',
+  },
+  { key: 'D_torus', kind: 'number', group: 'geom', label: '外径（管の外側の壁の直径）', unit: length, visibleWhen: isTorus },
+  { key: 'D_tube', kind: 'number', group: 'geom', label: '管の直径', unit: length, visibleWhen: isTorus },
+  { key: 'D_mod', kind: 'number', group: 'geom', label: 'モジュールの直径', unit: length, visibleWhen: isDumbbell },
+  { key: 'D_rot', kind: 'number', group: 'geom', label: '回転の直径（2つのモジュールの中心の間）', unit: length, visibleWhen: isDumbbell },
   { key: 'r_outer', kind: 'number', group: 'geom', label: '外径（一番外の面の半径）', unit: length, description: '回転の中心から、一番外の面（外に置く遮蔽があればその外面）まで' },
+  { key: 'D_outer', kind: 'number', group: 'geom', label: '外径（一番外の面の直径）', unit: length },
   { key: 'A_total', kind: 'number', group: 'geom', label: '床面積の合計', unit: area, description: '上の階・段・層を含む。居住計画（人数の見積もり）に使える' },
   { key: 'floor_table', kind: 'table', group: 'geom', label: '床の一覧', visibleWhen: (i) => sphereLevels(i) || (hasDecks(i) && Number(i.n_deck) > 0) },
   { key: 'V_air', kind: 'number', group: 'geom', label: '与圧された体積', unit: unitDefs.volumeLarge },
@@ -840,10 +855,11 @@ const outputs: OutputDef[] = [
     kind: 'table',
     group: 'struct',
     label: 'スポーク・引っ張り材の一覧',
-    description: '直径は、中身の詰まった丸い断面とした値（ケーブルや管にすると変わる）。リングは列ごとの1本、引っ張り材は1本の値',
+    description:
+      '中心側は回転軸に近い方の端。直径は、中身の詰まった丸い断面とした値（ケーブルや管にすると変わるので、断面積も出す）。リングは列ごとの1本、引っ張り材は1本の値。引っ張り材・リング・中心の軸は太さが一定',
     visibleWhen: anyMember,
   },
-  { key: 'F_spoke', kind: 'number', group: 'struct', label: 'スポーク・テザー1本の先の力', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: radial },
+  { key: 'F_spoke', kind: 'number', group: 'struct', label: 'スポーク・テザー1本の外側の端の力', description: 'スポークは外壁・管、テザーはモジュールから受ける力（自分の遠心力は含めない）', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: radial },
   { key: 'n_rows', kind: 'number', group: 'struct', label: 'スポークの列の数', unit: fixedUnit('列'), decimals: 0, visibleWhen: rowSpokes },
   { key: 's_zr', kind: 'number', group: 'struct', label: 'スポークの列の実際の間隔', unit: length, visibleWhen: rowSpokes },
   {
@@ -939,7 +955,7 @@ export const spaceColony: SimDefinition = {
     hypoxia: '酸素分圧が {p} kPa で、標高 2500 m の空気（約 15.6 kPa）より低いです。息苦しく、高山病のようになるおそれがあります',
     'o2-fire': '酸素の割合が {f}% あり、燃えやすくなります（NASA の探査用の大気は 34% を上限にしている。燃えにくい材料を選ぶ必要がある）',
     'cap-limit': '端のふたの外周の速さ {v} m/s が、外壁の材料で作れる上限 {vmax} m/s を超えていて、ふたを作れません（ふたはスポークで支えないので、自分の重さの遠心力をそのまま受ける）。半径を小さくするか、強さ ÷ 密度の大きい材料にしてください',
-    'spoke-limit': 'スポーク・テザーの先の速さ {v} m/s では、太さが一定のスポークは自分の遠心力に耐えられません。テーパーを「応力が一定」にするか、強さ ÷ 密度の大きい材料にしてください',
+    'spoke-limit': 'スポーク・テザーの外側の端の速さ {v} m/s では、太さが一定のスポークは自分の遠心力に耐えられません。テーパーを「応力が一定」にするか、強さ ÷ 密度の大きい材料にしてください',
     'ring-limit': 'リングの速さ {v} m/s が、スポークの材料で作れる上限を超えています。強さ ÷ 密度の大きい材料にしてください',
     'hub-out': 'ハブの半径が、スポーク・軸を付ける面（外壁、管の内側の壁、モジュールの上の壁）以上です。ハブを小さくしてください',
     'tie-sag': '同心の引っ張り材が、自分の遠心力で支点の間隔の {k}% たるみます。スポークの列を増やす（支点を増やす）か、輪の数を減らすか、強さ ÷ 密度の大きい材料にしてください',
@@ -962,6 +978,17 @@ export const spaceColony: SimDefinition = {
       num('sigma_sh', o.sigma_sh)
       num('M_shield', o.M_shield)
       num('r_outer', Math.max(...o.g_profile.r))
+      num('D_outer', 2 * Math.max(...o.g_profile.r))
+      num('LD', o.LD)
+      if (shapeIs('cylinder', 'sphere')(i)) num('D_hull', 2 * o.R_hull)
+      if (o.R_c !== undefined) {
+        num('D_torus', 2 * (o.R_c + o.R_hull))
+        num('D_tube', 2 * o.R_hull)
+      }
+      if (o.R_cm !== undefined) {
+        num('D_mod', 2 * o.R_hull)
+        num('D_rot', 2 * o.R_cm)
+      }
       num('M_hull', o.masses.filter((m) => m.label.includes('壁')).reduce((s, m) => s + m.mass, 0))
       const kPa = (P: number | undefined) => (P === undefined ? '—' : P / 1000)
       outputs.height_table = {
@@ -982,11 +1009,11 @@ export const spaceColony: SimDefinition = {
         columns: ['床', '中心からの距離 [m]', '重力 [G]', '面積 [m²]'],
         rows: o.floors.map((f) => [f.label, f.r, (o.dg_dr * f.r) / G0, f.area]),
       }
-      const dia = (A: number) => Math.sqrt((4 * A) / Math.PI) * 1000
+      const dia = (A: number) => Math.sqrt((4 * A) / Math.PI)
       outputs.member_table = {
         kind: 'table',
-        columns: ['部材', '本数', '先の直径 [mm]', '根元の直径 [mm]', '長さ [m]', '合計の質量 [t]'],
-        rows: o.members.map((m) => [m.label, m.count, dia(m.A_tip), dia(m.A_root), m.length, (m.mass * m.count) / 1000]),
+        columns: ['部材', '本数', '中心側の直径 [m]', '外側の直径 [m]', '1本の断面積（中心側）[m²]', '長さ [m]', '合計の質量 [t]'],
+        rows: o.members.map((m) => [m.label, m.count, dia(m.A_root), dia(m.A_tip), m.A_root, m.length, (m.mass * m.count) / 1000]),
       }
       outputs.mass_table = {
         kind: 'table',
