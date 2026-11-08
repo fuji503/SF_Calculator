@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LOCATIONS } from './data.ts'
-import { arealForDose, computeColony, doseAt, dropDrift, G0, molarMass, pressureAt, radialMember, type ColonyInputs } from './model.ts'
+import { arealForDose, computeColony, doseAt, dropDrift, G0, molarMass, pressureAt, radialMember, stayCables, type ColonyInputs } from './model.ts'
 
 /** 有効数字4桁で一致 */
 function expect4(actual: number | undefined, expected: number, rel = 5e-4) {
@@ -41,6 +41,14 @@ function base(over: Partial<ColonyInputs> = {}): ColonyInputs {
     f_s: 0,
     N_th: 12,
     s_z: 50,
+    hoop_mode: 'membrane',
+    axial_mode: 'membrane',
+    place: 'A',
+    depth_by_m: false,
+    k_th: 0.2,
+    k_z: 0.2,
+    d_th: 20,
+    d_z: 10,
     N_hub: 6,
     n_teth: 4,
     r_hub: 5,
@@ -402,5 +410,86 @@ describe('トーラス・ダンベルの部材（段階2）', () => {
     expect(t.count).toBe(8)
     expect4(o.F_spoke!, o.F_tether! / 4)
     expect4(t.A_tip, o.F_spoke! / (685e6 / 2))
+  })
+})
+
+describe('T16 外壁を円形に保つ構造（1.6）', () => {
+  const run = (over: Partial<ColonyInputs>) => computeColony(base({ f_s: 0.5, ...over }))
+  const mass = (o: ReturnType<typeof computeColony>['outputs'], label: string) => {
+    const m = o!.members.find((x) => x.label === label)!
+    return (m.mass * m.count) / 1000
+  }
+  it('膜：ふくらみの深さはスパンの 0.207 倍', () => {
+    const o = run({}).outputs!
+    expect4(o.bulge_th!, 27.11, 1e-3)
+    expect4(o.bulge_z!, 0.20711 * (325 / 7), 1e-3)
+    expect(o.d_th).toBeUndefined()
+  })
+  it('円周の吊り橋型：ケーブル 8058 t・ハンガー 811 t（8列）、スポークは節点まで', () => {
+    const r = run({ hoop_mode: 'susp' })
+    expect(r.errors).toEqual([])
+    const o = r.outputs!
+    expect4(mass(o, '円周の吊り橋型のケーブル') / 8, 8058, 1e-3)
+    expect4(mass(o, '円周のハンガー（細かく並ぶ）') / 8, 810.5, 2e-3)
+    expect4(o.d_th!, 0.2 * ((2 * Math.PI * 250) / 12))
+    expect4(o.members.find((m) => m.label === 'スポーク')!.length, 250 - o.d_th! - 5)
+    expect(o.R_hull).toBe(250)
+    expect(o.bulge_th).toBeUndefined()
+  })
+  it('円周の斜張橋型：8541 t、圧縮は外壁の張力で打ち消される', () => {
+    const o = run({ hoop_mode: 'stay' }).outputs!
+    expect4(mass(o, '円周の斜張橋型のケーブル（細かく並ぶ）') / 8, 8541, 1e-3)
+    expect4(o.C_th!, 2.556e8, 1e-3)
+    expect4(o.T_th!, 6.45e8, 1e-3)
+  })
+  it('浅い斜張橋型（0.1）は圧縮が張力を超え、警告と圧縮のリング', () => {
+    const r = run({ hoop_mode: 'stay', k_th: 0.1 })
+    expect(r.warnings.map((w) => w.code)).toContain('stay-compression')
+    expect4(r.outputs!.C_th!, 6.854e8, 1e-3)
+    const ring = r.outputs!.members.find((m) => m.label === '圧縮のリング（外壁の材料）')!
+    expect4(ring.A_tip, (6.854e8 - 6.45e8) / (503e6 / 2), 3e-3)
+  })
+  it('浅すぎる斜張橋型はエラー（d ≤ ℓ²/(8R)）', () => {
+    // ℓ²/(8R) = 8.57 m（スパン 130.9 m）
+    expect(run({ hoop_mode: 'stay', depth_by_m: true, d_th: 8 }).errors.map((e) => e.code)).toEqual(['stay-shallow'])
+    expect(run({ hoop_mode: 'stay', depth_by_m: true, d_th: 9 }).errors).toEqual([])
+    expect(stayCables(1, 130.9, 8.5, 250, 1)).toBeUndefined()
+  })
+  it('軸の方向：吊り橋型 2.674万 t ＋ 2012 t、斜張橋型 1.861万 t', () => {
+    const s = run({ axial_mode: 'susp' }).outputs!
+    expect4(mass(s, '軸の方向の吊り橋型のケーブル（細かく並ぶ）'), 26_740, 1e-3)
+    expect4(mass(s, '軸の方向のハンガー（細かく並ぶ）'), 2012, 1e-3)
+    const st = run({ axial_mode: 'stay' }).outputs!
+    expect4(mass(st, '軸の方向の斜張橋型のケーブル（細かく並ぶ）'), 18_610, 1e-3)
+    // 軸の方向は膜でなくなるので、外壁は円周方向と端のふたの張力だけで決まる
+    expect(st.bulge_z).toBeUndefined()
+  })
+  it('梁は床の下：外壁を梁の高さだけ外へ出す（比で入れると外壁の半径で深さが変わる）', () => {
+    const r = run({ hoop_mode: 'beam' })
+    expect(r.warnings.map((w) => w.code)).toContain('beam-below')
+    const o = r.outputs!
+    // R_h = 250 / (1 − 0.2 × 2π/12)
+    expect4(o.R_hull, 250 / (1 - (0.2 * 2 * Math.PI) / 12))
+    expect4(o.lift!, o.R_hull - 250)
+    expect4(o.members[0].A_tip, 1.36, 1e-3)
+    expect4(mass(o, '円周の梁（外壁の材料）') / 8, 6705, 1e-3)
+    const z = run({ axial_mode: 'beam' }).outputs!
+    expect4(z.R_hull, 250 + 0.2 * (325 / 7))
+    expect4(z.t_zbeam! * 1000, 8.53, 1e-3)
+  })
+  it('置き場所 B は外壁を外へ出し、A より重い。m で入れることもできる', () => {
+    const a = run({ hoop_mode: 'stay' }).outputs!
+    const b = run({ hoop_mode: 'stay', place: 'B' }).outputs!
+    expect(b.R_hull).toBeGreaterThan(a.R_hull)
+    expect(b.M_total).toBeGreaterThan(a.M_total)
+    expect(b.V_air).toBeGreaterThan(a.V_air)
+    const m = run({ hoop_mode: 'stay', place: 'B', depth_by_m: true, d_th: 20 }).outputs!
+    expect4(m.R_hull, 270)
+    expect(m.d_th).toBe(20)
+  })
+  it('球でも使える（軸の方向は球の曲がりを入れる）', () => {
+    const r = computeColony(base({ shape: 'sphere', A_f: 2e5, R_f: 250, f_s: 0.5, hoop_mode: 'stay', axial_mode: 'susp' }))
+    expect(r.errors).toEqual([])
+    expect(r.outputs!.members.map((m) => m.label)).toEqual(['円周の斜張橋型のケーブル（細かく並ぶ）', '軸の方向の吊り橋型のケーブル（細かく並ぶ）', '軸の方向のハンガー（細かく並ぶ）', 'スポーク'])
   })
 })

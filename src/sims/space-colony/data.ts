@@ -47,6 +47,13 @@ export const MATERIALS: Record<string, Material> = {
   uhmwpe: { label: '超高分子量ポリエチレン繊維（SK75 級）※参考値', sigma_u: 3600e6, rho: 975, E: 116e9 },
 }
 
+/** 引っ張りだけに使う材料（スポーク・引っ張り材・ケーブルの材料にだけ出し、外壁の材料には出さない。§3.4、1.6） */
+export const TENSION_MATERIALS: Record<string, Material> = {
+  wire1770: { label: '高強度鋼線（橋のケーブル用、1770 MPa 級）※検証済み', sigma_u: 1770e6, rho: 7850, E: 200e9 },
+  pbo: { label: 'PBO 繊維（ザイロン AS）※参考値', sigma_u: 5800e6, rho: 1540, E: 180e9 },
+  vectran: { label: '液晶ポリマー繊維（ベクトラン HT）※参考値', sigma_u: 3200e6, rho: 1400, E: 75e9 },
+}
+
 // ---------------------------------------------------------------------------
 // 放射線遮蔽（§3.8、§4.12）
 

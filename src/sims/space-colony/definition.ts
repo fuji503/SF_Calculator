@@ -1,7 +1,7 @@
 import { fixedUnit, U, unitDefs, type UnitDef } from '../../core/physics/units.ts'
 import type { ComputeResult, Inputs, OutputDef, OutputValue, ParamDef, SimDefinition } from '../types.ts'
-import { ATMOSPHERES, COLONY_PRESETS, LOCATIONS, MATERIALS, SHIELD_DENSITY, type Shape, type ShieldMat, type SphereFloor } from './data.ts'
-import { computeColony, G0, type Cap, type ColonyInputs, type Taper } from './model.ts'
+import { ATMOSPHERES, COLONY_PRESETS, LOCATIONS, MATERIALS, SHIELD_DENSITY, TENSION_MATERIALS, type Shape, type ShieldMat, type SphereFloor } from './data.ts'
+import { computeColony, G0, type Cap, type ColonyInputs, type HullMode, type Taper } from './model.ts'
 
 const CUSTOM = 'custom'
 const shapeIs =
@@ -24,6 +24,20 @@ const capSupported = (i: Inputs) => isCyl(i) && i.cap !== 'hemi'
 const radial = (i: Inputs) => spokeShare(i) || isDumbbell(i)
 /** スポークの材料を使う部材があるか */
 const anyMember = (i: Inputs) => radial(i) || tubeTies(i) || capSupported(i)
+/** 外壁を円形に保つ構造（§4.5）：円周・軸の方向の受け方 */
+const hoopIs =
+  (...m: HullMode[]) =>
+  (i: Inputs) =>
+    rowSpokes(i) && m.includes(String(i.hoop_mode) as HullMode)
+const axIs =
+  (...m: HullMode[]) =>
+  (i: Inputs) =>
+    rowSpokes(i) && m.includes(String(i.axial_mode) as HullMode)
+const circ = (i: Inputs) => hoopIs('beam', 'susp', 'stay')(i) || axIs('beam', 'susp', 'stay')(i)
+const cables = (i: Inputs) => hoopIs('susp', 'stay')(i) || axIs('susp', 'stay')(i)
+const HULL_MODES: HullMode[] = ['membrane', 'beam', 'susp', 'stay']
+/** スポーク・引っ張り材の材料（引っ張りだけに使う材料を含む） */
+const SPOKE_MATERIALS = { ...MATERIALS, ...TENSION_MATERIALS }
 
 const gravity: UnitDef = { options: [{ id: 'm/s2', label: 'm/s²', factor: 1 }, { id: 'G', label: 'G', factor: G0 }], defaultId: 'G' }
 const rpm = fixedUnit('rpm')
@@ -419,7 +433,7 @@ const inputs: ParamDef[] = [
     group: 'spoke',
     label: '1列のスポークの本数',
     symbol: 'N_\\theta',
-    description: '円周方向の本数。多いほど、スポークの間でふくらむリングが短くなり軽くなる',
+    description: '円周方向の本数。多いほど、スポークの間（スパン）が短くなり、リングや外壁を円形に保つ構造が軽く浅くなる',
     unit: fixedUnit('本'),
     default: 12,
     min: 3,
@@ -432,12 +446,119 @@ const inputs: ParamDef[] = [
     group: 'spoke',
     label: 'スポークの列の間隔',
     symbol: 's_z',
-    description: '軸方向の列の間隔（長さを割り切れるように直す）。狭いほど、列の間で殻がふくらむ張力が小さく、殻が薄くなるが、列が増える',
+    description: '軸方向の列の間隔（長さを割り切れるように直す）。狭いほど、列の間で殻がふくらむ張力が小さく、殻が薄くなる（外壁を円形に保つ構造なら浅く軽くなる）が、列が増える',
     unit: length,
     default: 50,
     min: 0,
     minExclusive: true,
     visibleWhen: rowSpokes,
+  },
+  {
+    kind: 'enum',
+    key: 'hoop_mode',
+    group: 'spoke',
+    label: '円周の方向（スポークの間）の受け方',
+    description:
+      '膜：外壁とリングが引っ張りだけで受け、スポークの間で外へふくらむ（花びら状。床も凹凸になる）。ほかは外壁を円形に保つ。梁：列のリングを曲げに強い梁にする（外壁の材料。床の下に置く）。吊り橋型：スポークの点から次のスポークの点へケーブルを張り、外壁を吊る。斜張橋型（放射型）：スポークを外壁の手前で止め、その点から外壁へ放射状にケーブルを張る（塔はいらず、すべて引っ張りの材料）。どれも、ふくらみと同じくらいの深さの構造が外壁の内側に要る',
+    options: [
+      { value: 'membrane', label: '膜（ふくらむ）' },
+      { value: 'beam', label: '梁' },
+      { value: 'susp', label: '吊り橋型' },
+      { value: 'stay', label: '斜張橋型（放射型）' },
+    ],
+    default: 'membrane',
+    visibleWhen: rowSpokes,
+  },
+  {
+    kind: 'enum',
+    key: 'axial_mode',
+    group: 'spoke',
+    label: '軸の方向（スポークの列の間）の受け方',
+    description: '選び方は円周の方向と同じ。膜では、外壁が列の間でソーセージ状にふくらむ。円形を保つ構造は、外壁の荷重を列まで運び、列から円周の方向の構造がスポークへ運ぶ',
+    options: [
+      { value: 'membrane', label: '膜（ふくらむ）' },
+      { value: 'beam', label: '梁' },
+      { value: 'susp', label: '吊り橋型' },
+      { value: 'stay', label: '斜張橋型（放射型）' },
+    ],
+    default: 'membrane',
+    visibleWhen: rowSpokes,
+  },
+  {
+    kind: 'enum',
+    key: 'place',
+    group: 'spoke',
+    label: 'ケーブルの置き場所',
+    description:
+      '居住空間の中：床は外壁の側のままで、ケーブルと節点は床の上の空間にある（スポークの近くは使いにくい）。床の下：床を構造の深さだけ持ち上げ、外壁が大きくなる（外壁・遮蔽・空気が増える）。梁は常に床の下に置く',
+    options: [
+      { value: 'A', label: '居住空間の中（床の上）' },
+      { value: 'B', label: '床の下（床を持ち上げる）' },
+    ],
+    default: 'A',
+    visibleWhen: cables,
+  },
+  {
+    kind: 'boolean',
+    key: 'depth_by_m',
+    group: 'spoke',
+    label: '構造の深さの決め方',
+    description: '梁の高さ・ケーブルのたわみ・節点の深さ（外壁の内面から）を、スパン（スポークの間隔・列の間隔）に対する比で入れるか、m で入れるか',
+    default: false,
+    labels: ['スパンに対する比', 'm で入れる'],
+    visibleWhen: circ,
+  },
+  {
+    kind: 'number',
+    key: 'k_th',
+    group: 'spoke',
+    label: '円周の方向の構造の深さ ÷ スパン',
+    symbol: 'k_\\theta',
+    description: 'スパンはスポークの間隔。深いほど軽いが、床の上（または下）の空間を多く使う。斜張橋型は約 0.29 で最も軽く、浅いと外壁を縮める力が大きくなる',
+    unit: fixedUnit(''),
+    default: 0.2,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: (i) => hoopIs('beam', 'susp', 'stay')(i) && !i.depth_by_m,
+  },
+  {
+    kind: 'number',
+    key: 'd_th',
+    group: 'spoke',
+    label: '円周の方向の構造の深さ',
+    symbol: 'd_\\theta',
+    description: '深いほど軽いが、床の上（または下）の空間を多く使う。斜張橋型はスポークの間隔の約 0.29 倍で最も軽い',
+    unit: length,
+    default: 20,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: (i) => hoopIs('beam', 'susp', 'stay')(i) && Boolean(i.depth_by_m),
+  },
+  {
+    kind: 'number',
+    key: 'k_z',
+    group: 'spoke',
+    label: '軸の方向の構造の深さ ÷ スパン',
+    symbol: 'k_z',
+    description: 'スパンは列の間隔。深いほど軽いが、空間を多く使う',
+    unit: fixedUnit(''),
+    default: 0.2,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: (i) => axIs('beam', 'susp', 'stay')(i) && !i.depth_by_m,
+  },
+  {
+    kind: 'number',
+    key: 'd_z',
+    group: 'spoke',
+    label: '軸の方向の構造の深さ',
+    symbol: 'd_z',
+    description: '深いほど軽いが、空間を多く使う。斜張橋型は列の間隔の約 0.29 倍で最も軽い',
+    unit: length,
+    default: 10,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: (i) => axIs('beam', 'susp', 'stay')(i) && Boolean(i.depth_by_m),
   },
   {
     kind: 'number',
@@ -574,10 +695,11 @@ const inputs: ParamDef[] = [
     key: 'mat_spoke',
     group: 'spoke',
     label: 'スポーク・引っ張り材の材料',
-    description: 'スポーク・テザー・引っ張り材・リング・中心の軸に使う。強さ ÷ 密度が大きいほど、自分の遠心力が小さく、細く軽くなる',
-    options: [...Object.entries(MATERIALS).map(([value, m]) => ({ value, label: m.label })), { value: CUSTOM, label: 'カスタム' }],
+    description:
+      'スポーク・テザー・引っ張り材・リング・中心の軸・ケーブルに使う。強さ ÷ 密度が大きいほど、自分の遠心力が小さく、細く軽くなる。鋼線や繊維は引っ張りだけに使う材料で、外壁の材料には出さない',
+    options: [...Object.entries(SPOKE_MATERIALS).map(([value, m]) => ({ value, label: m.label })), { value: CUSTOM, label: 'カスタム' }],
     default: 'ht780',
-    presets: (v): Inputs => (MATERIALS[v] ? { sigma_us: MATERIALS[v].sigma_u, rho_s: MATERIALS[v].rho, E_s: MATERIALS[v].E } : {}),
+    presets: (v): Inputs => (SPOKE_MATERIALS[v] ? { sigma_us: SPOKE_MATERIALS[v].sigma_u, rho_s: SPOKE_MATERIALS[v].rho, E_s: SPOKE_MATERIALS[v].E } : {}),
     customValue: CUSTOM,
     visibleWhen: anyMember,
   },
@@ -856,12 +978,22 @@ const outputs: OutputDef[] = [
     group: 'struct',
     label: 'スポーク・引っ張り材の一覧',
     description:
-      '中心側は回転軸に近い方の端。直径は、中身の詰まった丸い断面とした値（ケーブルや管にすると変わるので、断面積も出す）。リングは列ごとの1本、引っ張り材は1本の値。引っ張り材・リング・中心の軸は太さが一定',
+      '中心側は回転軸に近い方の端。直径は、中身の詰まった丸い断面（無垢の棒）とした値。数 mm〜数 cm ならワイヤー、それより太ければケーブルの束と考えてよい（ケーブルはすき間の分だけ太くなる：鋼線の束で約 1.1 倍、ワイヤーロープで約 1.3 倍。管にしても変わるので、断面積も出す）。細かく並ぶケーブル・梁は直径を出さず、本数はスパンの数、質量は合計。リングは列ごとの1本、引っ張り材は1本の値。引っ張り材・リング・中心の軸は太さが一定。スポークの列のリング：外壁の内側をスポークの列ごとに一周する輪。外壁の荷重（面）を受け止めて、スポークがつながる点まで運ぶ（スポークの間では外にふくらむ円弧になり、張力で両側のスポークへ渡す。本数が多いほど細く軽くなる）',
     visibleWhen: anyMember,
   },
   { key: 'F_spoke', kind: 'number', group: 'struct', label: 'スポーク・テザー1本の外側の端の力', description: 'スポークは外壁・管、テザーはモジュールから受ける力（自分の遠心力は含めない）', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: radial },
   { key: 'n_rows', kind: 'number', group: 'struct', label: 'スポークの列の数', unit: fixedUnit('列'), decimals: 0, visibleWhen: rowSpokes },
   { key: 's_zr', kind: 'number', group: 'struct', label: 'スポークの列の実際の間隔', unit: length, visibleWhen: rowSpokes },
+  { key: 'bulge_th', kind: 'number', group: 'struct', label: 'スポークの間のふくらみの深さ（膜）', unit: length, visibleWhen: hoopIs('membrane'), description: '外壁が、スポークの間で 90° の円弧にふくらむ（スポークの点で凹む）深さ。スポークの間隔の 0.207 倍。床を外壁に敷くと床も凹凸になる' },
+  { key: 'bulge_z', kind: 'number', group: 'struct', label: '列の間のふくらみの深さ（膜）', unit: length, visibleWhen: axIs('membrane'), description: '外壁が、列の間でふくらむ深さ。列の間隔の 0.207 倍' },
+  { key: 'd_th', kind: 'number', group: 'struct', label: '円周の方向の構造の深さ', unit: length, visibleWhen: hoopIs('beam', 'susp', 'stay'), description: '梁の高さ・ケーブルのたわみ・節点の深さ（外壁の内面から。自転させる遮蔽の厚さは含めない）。この高さの分、床の上（または下）の空間を使う' },
+  { key: 'd_z', kind: 'number', group: 'struct', label: '軸の方向の構造の深さ', unit: length, visibleWhen: axIs('beam', 'susp', 'stay') },
+  { key: 'lift', kind: 'number', group: 'struct', label: '床を持ち上げた高さ', unit: length, visibleWhen: circ, description: '床の下に置く構造（梁、または床の下に置いたケーブル）の分、外壁を床から離す高さ' },
+  { key: 't_zbeam', kind: 'number', group: 'struct', label: '軸の方向の梁の平均の厚さ', unit: thin, visibleWhen: axIs('beam'), description: '幅 1 m あたりの梁の断面積。外壁にならす（外壁に足す）と考えたときの厚さ' },
+  { key: 'C_th', kind: 'number', group: 'struct', label: '斜張橋型が外壁を縮める力（円周、列あたり）', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: hoopIs('stay'), description: 'ケーブルが外壁を節点の側へも引くので、外壁は円周方向に縮められる。浅いほど大きい' },
+  { key: 'T_th', kind: 'number', group: 'struct', label: '打ち消す外壁の張力（円周、列あたり）', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: hoopIs('stay'), description: '外壁が気圧でもともと持つ張力。縮める力がこれを超える分は、外壁の材料の圧縮のリングで受ける' },
+  { key: 'C_z', kind: 'number', group: 'struct', label: '斜張橋型が外壁を縮める力（軸、幅 1 m あたり）', unit: { options: [{ id: 'N/m', label: 'N/m', factor: 1 }, { id: 'MN/m', label: 'MN/m', factor: 1e6 }], defaultId: 'MN/m' }, visibleWhen: axIs('stay') },
+  { key: 'T_z', kind: 'number', group: 'struct', label: '打ち消す外壁の張力（軸、幅 1 m あたり）', unit: { options: [{ id: 'N/m', label: 'N/m', factor: 1 }, { id: 'MN/m', label: 'MN/m', factor: 1e6 }], defaultId: 'MN/m' }, visibleWhen: axIs('stay'), description: '超える分は外壁を厚くして受ける' },
   {
     key: 'dl_spoke',
     kind: 'number',
@@ -961,6 +1093,14 @@ export const spaceColony: SimDefinition = {
     'tie-sag': '同心の引っ張り材が、自分の遠心力で支点の間隔の {k}% たるみます。スポークの列を増やす（支点を増やす）か、輪の数を減らすか、強さ ÷ 密度の大きい材料にしてください',
     'torus-bending': 'ハブのスポークの間で、管は曲げを受けます（この計算では評価しません）',
     leo500: '赤道上の低軌道 500 km では、遮蔽がなくても 20 mSv/年 を満たします（Globus & Strout）',
+    'beam-limit': '外壁の速さ {v} m/s では、外壁の材料の梁は自分の遠心力に耐えられません。梁以外の受け方にするか、半径を小さくするか、強さ ÷ 密度の大きい材料にしてください',
+    'stay-shallow':
+      '斜張橋型の節点が浅すぎます。外壁は曲がっているので、スパンの端の外壁が節点より内側に来てしまいます。構造の深さを {d} m より深くするか、スポーク・列を増やしてスパンを短くしてください',
+    'stay-compression':
+      '斜張橋型のケーブルが外壁を円周方向に縮める力 {C} MN（列あたり）が、外壁の気圧の張力 {T} MN を超えます。超える分は外壁の材料の圧縮のリングで受けるとしました（座屈は評価しません）。構造を深くすると小さくなります',
+    'stay-compression-z':
+      '斜張橋型のケーブルが外壁を軸方向に縮める力 {C} MN/m が、外壁の張力 {T} MN/m を超えます。超える分は外壁を厚くして受けるとしました（座屈は評価しません）。構造を深くすると小さくなります',
+    'beam-below': '梁は床の下に置きます（ケーブルの置き場所に関わらず、床を梁の高さだけ持ち上げます）',
   },
   compute(i: Inputs): ComputeResult {
     const r = computeColony(toColonyInputs(i))
@@ -972,7 +1112,7 @@ export const spaceColony: SimDefinition = {
     // エラーのときも、回転と材料の上限は出す
     if (r.spin) for (const k of ['n_rpm', 'omega', 'v', 'period', 'v_max', 'R_max'] as const) num(k, r.spin[k])
     if (o) {
-      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'F_spoke', 'n_rows', 's_zr', 'dl_spoke', 'tie_sag', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
+      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'F_spoke', 'n_rows', 's_zr', 'bulge_th', 'bulge_z', 'd_th', 'd_z', 'lift', 't_zbeam', 'C_th', 'T_th', 'C_z', 'T_z', 'dl_spoke', 'tie_sag', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
         num(k, o[k])
       }
       num('sigma_sh', o.sigma_sh)
@@ -1009,11 +1149,12 @@ export const spaceColony: SimDefinition = {
         columns: ['床', '中心からの距離 [m]', '重力 [G]', '面積 [m²]'],
         rows: o.floors.map((f) => [f.label, f.r, (o.dg_dr * f.r) / G0, f.area]),
       }
-      const dia = (A: number) => Math.sqrt((4 * A) / Math.PI)
+      // 細かく並ぶケーブル・梁は断面積が NaN（直径を出さない）
+      const dia = (A: number) => (Number.isFinite(A) ? Math.sqrt((4 * A) / Math.PI) : '—')
       outputs.member_table = {
         kind: 'table',
         columns: ['部材', '本数', '中心側の直径 [m]', '外側の直径 [m]', '1本の断面積（中心側）[m²]', '長さ [m]', '合計の質量 [t]'],
-        rows: o.members.map((m) => [m.label, m.count, dia(m.A_root), dia(m.A_tip), m.A_root, m.length, (m.mass * m.count) / 1000]),
+        rows: o.members.map((m) => [m.label, m.count, dia(m.A_root), dia(m.A_tip), Number.isFinite(m.A_root) ? m.A_root : '—', m.length, (m.mass * m.count) / 1000]),
       }
       outputs.mass_table = {
         kind: 'table',
@@ -1062,6 +1203,14 @@ function toColonyInputs(i: Inputs): ColonyInputs {
     f_s: num('f_s'),
     N_th: num('N_th'),
     s_z: num('s_z'),
+    hoop_mode: (HULL_MODES.includes(String(i.hoop_mode) as HullMode) ? String(i.hoop_mode) : 'membrane') as HullMode,
+    axial_mode: (HULL_MODES.includes(String(i.axial_mode) as HullMode) ? String(i.axial_mode) : 'membrane') as HullMode,
+    place: i.place === 'B' ? 'B' : 'A',
+    depth_by_m: Boolean(i.depth_by_m),
+    k_th: num('k_th'),
+    k_z: num('k_z'),
+    d_th: num('d_th'),
+    d_z: num('d_z'),
     N_hub: num('N_hub'),
     n_teth: num('n_teth'),
     r_hub: num('r_hub'),

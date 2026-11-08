@@ -43,3 +43,20 @@ describe('構成の例', () => {
     expect(evaluate(spaceColony, i).errors).toEqual([])
   })
 })
+
+describe('外壁を円形に保つ構造と、引っ張りだけに使う材料（1.6）', () => {
+  it('鋼線・繊維はスポークの材料にだけ出し、外壁の材料には出さない', () => {
+    expect(enumParam('mat_spoke').options.map((o) => o.value)).toContain('wire1770')
+    expect(enumParam('mat_hull').options.map((o) => o.value)).not.toContain('wire1770')
+    const i = pick(defaultInputs(spaceColony), 'mat_spoke', 'pbo')
+    expect(i.sigma_us).toBe(5800e6)
+  })
+  it('斜張橋型を選ぶと、細かく並ぶケーブルの直径は「—」', () => {
+    const i = { ...defaultInputs(spaceColony), f_s: 0.5, hoop_mode: 'stay' }
+    const r = evaluate(spaceColony, i)
+    expect(r.errors).toEqual([])
+    const t = r.outputs.member_table
+    expect(t?.kind === 'table' && t.rows[0][2]).toBe('—')
+    expect(num(r, 'C_th')).toBeGreaterThan(0)
+  })
+})
