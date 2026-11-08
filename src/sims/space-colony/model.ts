@@ -15,7 +15,7 @@ export const F_O2_FIRE = 0.34
 
 export type Taper = 'none' | 'const' | 'linear'
 export type Cap = 'hemi' | 'spine' | 'ties'
-/** 外壁の受け方（§4.5）：膜（ふくらむ）、梁、吊り橋型、斜張橋型（放射型） */
+/** 外壁の受け方（§4.5）：外壁がふくらむ（membrane）、梁、吊り橋型、斜張橋型（放射型） */
 export type HullMode = 'membrane' | 'beam' | 'susp' | 'stay'
 
 export interface ColonyInputs {
@@ -192,7 +192,7 @@ export interface ColonyOutputs {
   /** スポークの列の数と実際の間隔（シリンダ・球） */
   n_rows?: number
   s_zr?: number
-  /** 膜のときのふくらみの深さ（円周・軸） */
+  /** 外壁がふくらむときのふくらみの深さ（円周・軸） */
   bulge_th?: number
   bulge_z?: number
   /** 外壁を円形に保つ構造の深さ（円周・軸） */
@@ -793,7 +793,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
       const cs = fs > 0 ? circular(fs * p_ext * s_zr, fs * p_ext, R_h, s_zr, n_r, (1 - fs) * p_ext * R_h * s_zr, T_zcap, Infinity) : undefined
       if (fs > 0 && !cs) return { warnings, errors }
       const t_theta = ((1 - fs) * p_ext * R_h) / den
-      // 軸の方向：膜なら列の間でふくらむ張力、円形を保つ構造なら斜張橋型の圧縮のうち張力を超える分
+      // 軸の方向：外壁がふくらむなら列の間でふくらむ張力、円形を保つ構造なら斜張橋型の圧縮のうち張力を超える分
       const N_ax = axM === 'membrane' ? Math.max(T_zcap, (fs * p_ext * s_zr) / Math.SQRT2) : Math.max(T_zcap, (cs?.C_z ?? 0) - T_zcap)
       t_hull = Math.max(t_theta, N_ax / sa)
       const A_side = 2 * Math.PI * R_h * L

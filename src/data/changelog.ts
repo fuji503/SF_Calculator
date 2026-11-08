@@ -15,6 +15,13 @@ export const futurePlans: readonly string[] = [
 
 export const changelog: readonly ChangelogEntry[] = [
   {
+    version: '1.4.6',
+    date: '2026-11-09',
+    changes: [
+      '「スペースコロニー設計」：外壁の受け方の「膜」を「外壁がふくらむ」に言い換えた（ふくらみの深さの出力名と説明も合わせた）。',
+    ],
+  },
+  {
     version: '1.4.5',
     date: '2026-11-09',
     changes: [

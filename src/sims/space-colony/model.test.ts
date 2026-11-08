@@ -419,7 +419,7 @@ describe('T16 外壁を円形に保つ構造（1.6）', () => {
     const m = o!.members.find((x) => x.label === label)!
     return (m.mass * m.count) / 1000
   }
-  it('膜：ふくらみの深さはスパンの 0.207 倍', () => {
+  it('外壁がふくらむ：ふくらみの深さはスパンの 0.207 倍', () => {
     const o = run({}).outputs!
     expect4(o.bulge_th!, 27.11, 1e-3)
     expect4(o.bulge_z!, 0.20711 * (325 / 7), 1e-3)
@@ -461,7 +461,7 @@ describe('T16 外壁を円形に保つ構造（1.6）', () => {
     expect4(mass(s, '軸の方向のハンガー（細かく並ぶ）'), 2012, 1e-3)
     const st = run({ axial_mode: 'stay' }).outputs!
     expect4(mass(st, '軸の方向の斜張橋型のケーブル（細かく並ぶ）'), 18_610, 1e-3)
-    // 軸の方向は膜でなくなるので、外壁は円周方向と端のふたの張力だけで決まる
+    // 軸の方向は外壁がふくらまなくなるので、外壁は円周方向と端のふたの張力だけで決まる
     expect(st.bulge_z).toBeUndefined()
   })
   it('梁は床の下：外壁を梁の高さだけ外へ出す（比で入れると外壁の半径で深さが変わる）', () => {
