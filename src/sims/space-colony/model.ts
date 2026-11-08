@@ -7,6 +7,11 @@ export const G0 = 9.80665
 const R_GAS = 8.314462618
 const M_O2 = 31.998e-3
 const M_N2 = 28.014e-3
+const M_H2O = 18.015e-3
+/** 酸素分圧の下限の目安：標高 2500 m の空気の酸素分圧（74.7 kPa × 20.95%） */
+export const P_O2_LOW = 15_650
+/** 酸素の割合の上限の目安：NASA の探査用の大気の 34% */
+export const F_O2_FIRE = 0.34
 
 export interface ColonyInputs {
   shape: Shape
@@ -23,7 +28,13 @@ export interface ColonyInputs {
   n_deck: number
   h_deck: number
   P_f: number
+  /** 乾いた空気のうちの酸素の割合 */
   f_O2: number
+  /** true：酸素分圧を入れる（気圧を変えても吸う酸素の量を保つ）。false：割合を入れる */
+  o2_by_pressure: boolean
+  p_O2: number
+  /** 相対湿度 */
+  RH: number
   T_in: number
   sigma_u: number
   rho: number
@@ -93,6 +104,15 @@ export interface ColonyOutputs {
   I_ratio?: number
   M_mol: number
   rho_air: number
+  /** 酸素分圧と、乾いた空気のうちの酸素の割合（入れなかった方は計算で決まる） */
+  p_O2: number
+  f_O2: number
+  /** 全体の気圧に対する酸素の割合 */
+  x_O2: number
+  p_N2: number
+  p_H2O: number
+  /** 露点（湿度 0 では undefined） */
+  T_dew?: number
   P_axis?: number
   floors: Floor[]
   A_total: number
@@ -143,9 +163,31 @@ export interface ColonyResult {
 // ---------------------------------------------------------------------------
 // 部品
 
-/** 平均の分子量 [kg/mol]（酸素と窒素） */
+/** 乾いた空気の平均の分子量 [kg/mol]（酸素と窒素） */
 export function molarMass(fO2: number): number {
   return fO2 * M_O2 + (1 - fO2) * M_N2
+}
+
+/** 水の飽和水蒸気圧 [Pa]（Magnus の式、Alduchov & Eskridge 1996 の係数。-40〜50℃） */
+export function saturationPressure(T: number): number {
+  const c = T - 273.15
+  return 610.94 * Math.exp((17.625 * c) / (c + 243.04))
+}
+
+/** 水蒸気圧 [Pa] から露点 [K] */
+export function dewPoint(p_w: number): number {
+  const l = Math.log(p_w / 610.94)
+  return 273.15 + (243.04 * l) / (17.625 - l)
+}
+
+/** 空気の組成（§4.2）。水蒸気は相対湿度から、酸素は割合か分圧から決める */
+export function airComposition(P: number, T: number, RH: number, o2: { f?: number; p?: number }) {
+  const p_H2O = RH * saturationPressure(T)
+  const dry = P - p_H2O
+  const p_O2 = o2.p ?? (o2.f ?? 0) * dry
+  const p_N2 = dry - p_O2
+  const M = (p_O2 * M_O2 + p_N2 * M_N2 + p_H2O * M_H2O) / P
+  return { p_H2O, p_O2, p_N2, f_O2: p_O2 / dry, M }
 }
 
 /** 空気も一緒に回るときの、半径 r の気圧（§4.2） */
@@ -228,7 +270,14 @@ export function computeColony(p: ColonyInputs): ColonyResult {
   const n_rpm = (60 * omega) / (2 * Math.PI)
 
   // §4.2 空気
-  const M = molarMass(p.f_O2)
+  if (!(p.RH >= 0 && p.RH <= 1)) return { warnings, errors: [{ code: 'range', keys: ['RH'] }] }
+  const air = airComposition(p.P_f, p.T_in, p.RH, p.o2_by_pressure ? { p: p.p_O2 } : { f: p.f_O2 })
+  if (air.p_H2O >= p.P_f) return { warnings, errors: [{ code: 'humid', keys: ['RH', 'P_f', 'T_in'] }] }
+  if (!(air.p_O2 >= 0) || air.p_N2 < 0) return { warnings, errors: [{ code: 'o2-high', keys: [p.o2_by_pressure ? 'p_O2' : 'f_O2', 'P_f'] }] }
+  const M = air.M
+  const x_O2 = air.p_O2 / p.P_f
+  if (air.p_O2 < P_O2_LOW) warnings.push({ code: 'hypoxia', keys: ['p_O2', 'f_O2', 'P_f'], params: { p: air.p_O2 / 1000 } })
+  if (x_O2 > F_O2_FIRE) warnings.push({ code: 'o2-fire', keys: ['p_O2', 'f_O2', 'P_f'], params: { f: x_O2 * 100 } })
   const P = (r: number) => pressureAt(p.P_f, M, p.T_in, omega, r, p.R_f)
   const rho_air = (p.P_f * M) / (R_GAS * p.T_in)
   const sa = p.sigma_u / p.SF
@@ -588,6 +637,12 @@ export function computeColony(p: ColonyInputs): ColonyResult {
       I_ratio,
       M_mol: M,
       rho_air,
+      p_O2: air.p_O2,
+      f_O2: air.f_O2,
+      x_O2,
+      p_N2: air.p_N2,
+      p_H2O: air.p_H2O,
+      T_dew: air.p_H2O > 0 ? dewPoint(air.p_H2O) : undefined,
       P_axis: axisInside ? P(0) : undefined,
       floors,
       A_total: floors.reduce((s, f) => s + f.area, 0),

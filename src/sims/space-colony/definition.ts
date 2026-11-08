@@ -224,10 +224,10 @@ const inputs: ParamDef[] = [
     key: 'atm',
     group: 'atm',
     label: '大気',
-    description: '選ぶと、気圧と酸素の割合が入る。気圧が低いほど壁が薄くなる（酸素の割合を上げて、吸う酸素の量を保つ）',
+    description: '選ぶと、気圧と酸素の割合・分圧が入る。気圧が低いほど壁が薄くなる（酸素の割合を上げて、吸う酸素の量（分圧）を保つ）',
     options: [...Object.entries(ATMOSPHERES).map(([value, a]) => ({ value, label: a.label })), { value: CUSTOM, label: 'カスタム' }],
     default: 'air',
-    presets: (v): Inputs => (ATMOSPHERES[v] ? { P_f: ATMOSPHERES[v].P, f_O2: ATMOSPHERES[v].fO2 } : {}),
+    presets: (v): Inputs => (ATMOSPHERES[v] ? { P_f: ATMOSPHERES[v].P, f_O2: ATMOSPHERES[v].fO2, p_O2: ATMOSPHERES[v].pO2 } : {}),
     customValue: CUSTOM,
   },
   {
@@ -243,14 +243,51 @@ const inputs: ParamDef[] = [
     minExclusive: true,
   },
   {
+    kind: 'boolean',
+    key: 'o2_by',
+    group: 'atm',
+    label: '酸素の決め方',
+    description:
+      '割合：気圧を下げると、吸う酸素の量（分圧）も下がる。分圧：気圧を変えても吸う酸素の量を保ち、割合は計算で決まる（気圧が低いほど割合が上がる）',
+    default: false,
+    labels: ['割合を入れる', '分圧を入れる'],
+  },
+  {
     kind: 'number',
     key: 'f_O2',
     group: 'atm',
-    label: '酸素の割合（体積）',
+    label: '酸素の割合（乾いた空気のうち、体積）',
     symbol: 'f_{O2}',
-    description: '残りは窒素とする。空気の重さ（分子量）が変わり、中心と床の気圧の差がわずかに変わる',
+    description: '水蒸気を除いた空気のうちの酸素の割合（地球の空気は 20.95%）。残りは窒素とする。大きいほど燃えやすい',
     unit: fraction,
     default: 0.2095,
+    min: 0,
+    max: 1,
+    role: (i) => (i.o2_by ? 'output' : 'input'),
+  },
+  {
+    kind: 'number',
+    key: 'p_O2',
+    group: 'atm',
+    label: '酸素分圧',
+    symbol: 'p_{O2}',
+    description: '吸う酸素の量を決める（地球の海面 21.2 kPa、標高 2500 m で約 15.6 kPa）。小さいほど息苦しく、高山病のようになる',
+    unit: pressure,
+    default: 21_230,
+    min: 0,
+    minExclusive: true,
+    role: (i) => (i.o2_by ? 'input' : 'output'),
+  },
+  {
+    kind: 'number',
+    key: 'RH',
+    group: 'atm',
+    label: '相対湿度',
+    symbol: 'RH',
+    description:
+      '水蒸気は空気より軽いので、空気の平均の分子量が少し小さくなる（構造への影響は小さい）。気圧のうち水蒸気の分だけ、酸素と窒素が減る。露点を出す（窓や冷たい壁の結露の目安）',
+    unit: fraction,
+    default: 0.5,
     min: 0,
     max: 1,
   },
@@ -555,6 +592,14 @@ const outputs: OutputDef[] = [
   { key: 'M_air', kind: 'number', group: 'geom', label: '空気の質量', unit: massT },
   { key: 'P_axis', kind: 'number', group: 'geom', label: '中心の軸の気圧', unit: pressure, visibleWhen: shapeIs('cylinder', 'sphere') },
 
+  // 大気の組成
+  { key: 'x_O2', kind: 'number', group: 'air', label: '酸素の割合（水蒸気を含む全体のうち）', unit: fraction, description: '燃えやすさの目安。NASA の探査用の大気は 34% を上限にしている' },
+  { key: 'p_N2', kind: 'number', group: 'air', label: '窒素分圧', unit: pressure },
+  { key: 'p_H2O', kind: 'number', group: 'air', label: '水蒸気圧', unit: pressure },
+  { key: 'T_dew', kind: 'number', group: 'air', label: '露点', unit: unitDefs.temperature, description: 'これより冷たい窓や壁には結露する' },
+  { key: 'M_mol', kind: 'number', group: 'air', label: '空気の平均の分子量', unit: fixedUnit('kg/mol') },
+  { key: 'rho_air', kind: 'number', group: 'air', label: '空気の密度（基準の床）', unit: unitDefs.density },
+
   // 構造
   {
     key: 't_hull',
@@ -609,6 +654,7 @@ export const spaceColony: SimDefinition = {
   outputGroups: [
     { id: 'spin', label: '回転・重力・気圧・快適さ' },
     { id: 'geom', label: '形と大きさ' },
+    { id: 'air', label: '大気の組成' },
     { id: 'struct', label: '構造' },
     { id: 'shield', label: '放射線遮蔽' },
     { id: 'mass', label: '質量と回転のエネルギー' },
@@ -633,6 +679,10 @@ export const spaceColony: SimDefinition = {
     coriolis: 'コリオリの力が重力の {k}% あり、上限を超えています（速く動くと、重さが大きく変わって感じる）',
     gradient: '頭と足の重力の差が {k}% あり、上限を超えています',
     stability: '回転軸まわりと横の軸まわりの慣性モーメントの比が {k} で、1.2 より小さいです。長すぎる円筒は、回転の軸がずれていきやすい（島3号のように2本を逆に回す組にするか、能動的に制御する）',
+    humid: '水蒸気圧が気圧以上になります。湿度か気温を下げてください',
+    'o2-high': '酸素が気圧（水蒸気を除く）より多くなります。酸素分圧を下げるか、気圧を上げてください',
+    hypoxia: '酸素分圧が {p} kPa で、標高 2500 m の空気（約 15.6 kPa）より低いです。息苦しく、高山病のようになるおそれがあります',
+    'o2-fire': '酸素の割合が {f}% あり、燃えやすくなります（NASA の探査用の大気は 34% を上限にしている。燃えにくい材料を選ぶ必要がある）',
     leo500: '赤道上の低軌道 500 km では、遮蔽がなくても 20 mSv/年 を満たします（Globus & Strout）',
   },
   compute(i: Inputs): ComputeResult {
@@ -643,7 +693,7 @@ export const spaceColony: SimDefinition = {
       const num = (k: string, v: number | undefined) => {
         if (v !== undefined && Number.isFinite(v)) outputs[k] = { kind: 'number', value: v }
       }
-      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose'] as const) {
+      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
         num(k, o[k])
       }
       num('sigma_sh', o.sigma_sh)
@@ -700,6 +750,9 @@ function toColonyInputs(i: Inputs): ColonyInputs {
     h_deck: num('h_deck'),
     P_f: num('P_f'),
     f_O2: num('f_O2'),
+    o2_by_pressure: Boolean(i.o2_by),
+    p_O2: num('p_O2'),
+    RH: num('RH'),
     T_in: num('T_in'),
     sigma_u: num('sigma_u'),
     rho: num('rho'),

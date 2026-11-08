@@ -25,6 +25,9 @@ function base(over: Partial<ColonyInputs> = {}): ColonyInputs {
     h_deck: 4,
     P_f: 101_325,
     f_O2: 0.2095,
+    o2_by_pressure: false,
+    p_O2: 21_230,
+    RH: 0,
     T_in: 295.15,
     sigma_u: 503e6,
     rho: 2810,
@@ -204,5 +207,33 @@ describe('質量と回転', () => {
     const o = computeColony(base({ shape: 'dumbbell', R_f: 230, a_m: 16.5, shield_rot: true, sigma_sh: 9041, rho_sh: 2600 })).outputs!
     expect(o.F_tether!).toBeGreaterThan(0)
     expect(o.L_m!).toBeCloseTo((2 * Math.PI * 250 * 325) / 32, 6)
+  })
+})
+
+describe('大気の組成（1.2）', () => {
+  it('分圧を入れると、気圧を下げても酸素分圧を保ち、割合が上がる', () => {
+    const o = computeColony(base({ P_f: 50_000, o2_by_pressure: true, p_O2: 21_230 })).outputs!
+    expect4(o.p_O2, 21_230)
+    expect4(o.f_O2, 21_230 / 50_000)
+  })
+  it('割合を入れると、分圧は気圧に比例する', () => {
+    const o = computeColony(base({ P_f: 50_000 })).outputs!
+    expect4(o.p_O2, 0.2095 * 50_000)
+  })
+  it('湿度：22℃・50% で水蒸気圧 1.32 kPa、露点 約 11℃。酸素と窒素はその分減る', () => {
+    const o = computeColony(base({ RH: 0.5 })).outputs!
+    expect4(o.p_H2O, 1322, 3e-3)
+    expect(o.T_dew! - 273.15).toBeCloseTo(11.1, 0)
+    expect4(o.p_O2, 0.2095 * (101_325 - o.p_H2O))
+    // 水蒸気は軽いので、空気の平均の分子量が小さくなる
+    expect(o.M_mol).toBeLessThan(molarMass(0.2095))
+  })
+  it('酸素分圧が低いと警告、酸素の割合が 34% を超えると警告', () => {
+    expect(computeColony(base({ P_f: 60_000 })).warnings.map((w) => w.code)).toContain('hypoxia')
+    expect(computeColony(base({ P_f: 51_700, o2_by_pressure: true, p_O2: 22_700 })).warnings.map((w) => w.code)).toContain('o2-fire')
+  })
+  it('酸素分圧が気圧を超えるとエラー', () => {
+    const r = computeColony(base({ P_f: 20_000, o2_by_pressure: true, p_O2: 21_230 }))
+    expect(r.errors.map((e) => e.code)).toEqual(['o2-high'])
   })
 })

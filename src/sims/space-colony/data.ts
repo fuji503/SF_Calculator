@@ -11,14 +11,17 @@ export type SphereFloor = 'band' | 'terrace' | 'concentric'
 export interface AtmPreset {
   label: string
   P: number
+  /** 乾いた空気のうちの酸素の割合 */
   fO2: number
+  /** 酸素分圧 [Pa] */
+  pO2: number
 }
 
 export const ATMOSPHERES: Record<string, AtmPreset> = {
-  air: { label: '1気圧の空気（地球の海面）※検証済み', P: 101_325, fO2: 0.2095 },
-  exploration: { label: '探査用の大気（56.5 kPa、酸素 34%。NASA）※検証済み', P: 56_500, fO2: 0.34 },
-  // NASA SP-413：酸素分圧 22.7 kPa、窒素 26.6 kPa、合計 51.7 kPa（水蒸気・二酸化炭素を含む）
-  stanford: { label: 'スタンフォード・トーラス（51.7 kPa、酸素分圧 22.7 kPa）※参考値', P: 51_700, fO2: 22.7 / 51.7 },
+  air: { label: '1気圧の空気（地球の海面、酸素分圧 21.2 kPa）※検証済み', P: 101_325, fO2: 0.2095, pO2: 21_230 },
+  exploration: { label: '探査用の大気（56.5 kPa、酸素 34%、酸素分圧 19.2 kPa。NASA）※検証済み', P: 56_500, fO2: 0.34, pO2: 19_210 },
+  // NASA SP-413：酸素分圧 22.7 kPa、窒素 26.6 kPa、合計 51.7 kPa（残りは水蒸気・二酸化炭素）。割合は乾いた空気（酸素と窒素）のうち
+  stanford: { label: 'スタンフォード・トーラス（51.7 kPa、酸素分圧 22.7 kPa）※参考値', P: 51_700, fO2: 22.7 / (22.7 + 26.6), pO2: 22_700 },
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +117,7 @@ export const COLONY_PRESETS: Record<string, ColonyPreset> = {
   // Globus ほか（2007）：半径 250 m、長さ 325 m、約 2 rpm
   kalpana: {
     label: 'カルパナ・ワン（シリンダ、半径 250 m）※参考値',
-    values: { shape: 'cylinder', A_f: 2 * Math.PI * 250 * 325, g_f: G0, R_f: 250, f_land: 1, atm: 'air', P_f: 101_325, f_O2: 0.2095, loc: 'free', shield_rot: true, shield_mat: 'regolith', shield_by: false, rho_sh: 1500 },
+    values: { shape: 'cylinder', A_f: 2 * Math.PI * 250 * 325, g_f: G0, R_f: 250, f_land: 1, atm: 'air', P_f: 101_325, f_O2: 0.2095, p_O2: 21_230, loc: 'free', shield_rot: true, shield_mat: 'regolith', shield_by: false, rho_sh: 1500 },
   },
   // NASA SP-413：外径 1790 m、管の直径 130 m、1 rpm、遮蔽は自転させない月の土 1.7 m（4.5 t/m²）。
   // 床の位置は推定：管の中心（半径 830 m）から 50 m 外の弦（幅 83 m、半径 880 m、0.98 G）
@@ -122,25 +125,25 @@ export const COLONY_PRESETS: Record<string, ColonyPreset> = {
     label: 'スタンフォード・トーラス（外径 1.79 km、1 rpm）※参考値',
     values: {
       shape: 'torus', A_f: 2 * Math.PI * 880 * 2 * Math.sqrt(65 ** 2 - 50 ** 2), g_f: 880 * (2 * Math.PI / 60) ** 2, R_f: 880, a: 65, n_deck: 0,
-      atm: 'stanford', P_f: 51_700, f_O2: 22.7 / 51.7, loc: 'free', shield_rot: false, shield_mat: 'regolith', shield_by: true, sigma_sh: 4500, rho_sh: 4500 / 1.7,
+      atm: 'stanford', P_f: 51_700, f_O2: 22.7 / (22.7 + 26.6), p_O2: 22_700, loc: 'free', shield_rot: false, shield_mat: 'regolith', shield_by: true, sigma_sh: 4500, rho_sh: 4500 / 1.7,
     },
   },
   // O'Neill（1977）：直径 約 500 m、1.9 rpm、赤道で 1 G
   island1: {
     label: '島1号（バナール球、直径 約 500 m）※参考値',
-    values: { shape: 'sphere', sphere_floor: 'band', A_f: 4 * Math.PI * 250 ** 2 * Math.sin(Math.acos(0.7)), g_f: G0, R_f: 250, g_min: 0.7 * G0, atm: 'air', P_f: 101_325, f_O2: 0.2095, loc: 'free', shield_rot: false, shield_mat: 'regolith', shield_by: false, rho_sh: 1500 },
+    values: { shape: 'sphere', sphere_floor: 'band', A_f: 4 * Math.PI * 250 ** 2 * Math.sin(Math.acos(0.7)), g_f: G0, R_f: 250, g_min: 0.7 * G0, atm: 'air', P_f: 101_325, f_O2: 0.2095, p_O2: 21_230, loc: 'free', shield_rot: false, shield_mat: 'regolith', shield_by: false, rho_sh: 1500 },
   },
   // O'Neill（1974）：直径 6.4 km、長さ 32 km、陸と窓が3本ずつ
   island3: {
     label: '島3号（オニールの円筒、直径 6.4 km）※参考値',
-    values: { shape: 'cylinder', A_f: 2 * Math.PI * 3200 * 32_000 * 0.5, g_f: G0, R_f: 3200, f_land: 0.5, atm: 'exploration', P_f: 56_500, f_O2: 0.34, loc: 'free', shield_rot: true, shield_mat: 'regolith', shield_by: false, rho_sh: 1500 },
+    values: { shape: 'cylinder', A_f: 2 * Math.PI * 3200 * 32_000 * 0.5, g_f: G0, R_f: 3200, f_land: 0.5, atm: 'exploration', P_f: 56_500, f_O2: 0.34, p_O2: 19_210, loc: 'free', shield_rot: true, shield_mat: 'regolith', shield_by: false, rho_sh: 1500 },
   },
   // Janhunen（2020）：回転半径 230 m、2 rpm、遮蔽 9.04 t/m²（密度 2600）。元は内径 33 m の球の10階建て。ここでは、遮蔽の内側の半径が 16.5 m の円筒のモジュールで近似する
   dumbbell: {
     label: 'L5 の遮蔽付きダンベル（回転半径 230 m）※参考値',
     values: {
       shape: 'dumbbell', A_f: 2 * 16 * 40, g_f: G0, R_f: 230, a_m: 20, w_m: 16, n_deck: 8, h_deck: 3,
-      atm: 'air', P_f: 101_325, f_O2: 0.2095, loc: 'free', shield_rot: true, shield_mat: 'regolith', shield_by: true, sigma_sh: 9041, rho_sh: 2600,
+      atm: 'air', P_f: 101_325, f_O2: 0.2095, p_O2: 21_230, loc: 'free', shield_rot: true, shield_mat: 'regolith', shield_by: true, sigma_sh: 9041, rho_sh: 2600,
     },
   },
 }
