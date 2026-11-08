@@ -173,7 +173,8 @@ const inputs: ParamDef[] = [
     group: 'dims',
     label: '床にする最も小さい重力',
     symbol: 'g_{min}',
-    description: '赤道の帯では、帯の端の重力の下限（床面積が小さければ、帯はこれより狭くなる）。段々の床・同心の床では、一番上（内側）の段・層の重力',
+    description:
+      '基準の床の重力より小さくする。赤道の帯では、帯の端の重力の下限（球の内面は赤道から離れるほど重力が弱い。床面積が小さければ、帯はこれより狭くなる）。段々の床・同心の床では、一番上（内側）の段・層の重力',
     unit: gravity,
     default: 0.7 * G0,
     min: 0,
@@ -554,13 +555,13 @@ const inputs: ParamDef[] = [
 // 出力（§5）
 
 const outputs: OutputDef[] = [
-  { key: 'n_rpm', kind: 'number', label: '回転数', symbol: 'n', unit: rpm, primary: true },
-  { key: 'omega', kind: 'number', label: '角速度', symbol: '\\omega', unit: fixedUnit('rad/s'), primary: true },
-  { key: 'v', kind: 'number', label: '接線速度（基準の床の速さ）', symbol: 'v', unit: unitDefs.velocity, primary: true },
+  { key: 'n_rpm', kind: 'number', label: '回転数', symbol: 'n', unit: rpm, primary: true, showOnError: true },
+  { key: 'omega', kind: 'number', label: '角速度', symbol: '\\omega', unit: fixedUnit('rad/s'), primary: true, showOnError: true },
+  { key: 'v', kind: 'number', label: '接線速度（基準の床の速さ）', symbol: 'v', unit: unitDefs.velocity, primary: true, showOnError: true },
   { key: 'M_total', kind: 'number', label: '全体の質量', unit: massT, primary: true },
 
   // 回転・重力・快適さ
-  { key: 'period', kind: 'number', group: 'spin', label: '周期（1回転の時間）', unit: unitDefs.duration },
+  { key: 'period', kind: 'number', group: 'spin', showOnError: true, label: '周期（1回転の時間）', unit: unitDefs.duration },
   { key: 'dg_dr', kind: 'number', group: 'spin', label: '1 m あたりの重力の変化', symbol: 'dg/dr', unit: fixedUnit('m/s² per m'), description: '中心に1 m 近づくごとに弱くなる重力（= 角速度の2乗）' },
   {
     key: 'height_table',
@@ -616,12 +617,13 @@ const outputs: OutputDef[] = [
     key: 'v_max',
     kind: 'number',
     group: 'struct',
+    showOnError: true,
     label: '作れる接線速度の上限',
     unit: unitDefs.velocity,
     visibleWhen: (i) => !isDumbbell(i),
     description: 'この材料の殻が、自分の重さの遠心力だけで許容応力に達する速さ。床の速さがこれに近いほど壁が急に厚くなる',
   },
-  { key: 'R_max', kind: 'number', group: 'struct', label: 'この重力で作れる最大の半径', unit: unitDefs.lengthKm, visibleWhen: (i) => !isDumbbell(i), description: '殻の自分の重さだけで決まる上限。気圧と荷重があると、さらに小さい' },
+  { key: 'R_max', kind: 'number', group: 'struct', showOnError: true, label: 'この重力で作れる最大の半径', unit: unitDefs.lengthKm, visibleWhen: (i) => !isDumbbell(i), description: '殻の自分の重さだけで決まる上限。気圧と荷重があると、さらに小さい' },
   { key: 'F_tether', kind: 'number', group: 'struct', label: 'テザーの張力（モジュール1つの遠心力）', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: isDumbbell },
 
   // 遮蔽
@@ -652,10 +654,10 @@ export const spaceColony: SimDefinition = {
   ],
   collapsibleGroups: true,
   outputGroups: [
-    { id: 'spin', label: '回転・重力・気圧・快適さ' },
     { id: 'geom', label: '形と大きさ' },
-    { id: 'air', label: '大気の組成' },
     { id: 'struct', label: '構造' },
+    { id: 'spin', label: '回転・重力・気圧・快適さ' },
+    { id: 'air', label: '大気の組成' },
     { id: 'shield', label: '放射線遮蔽' },
     { id: 'mass', label: '質量と回転のエネルギー' },
   ],
@@ -667,13 +669,21 @@ export const spaceColony: SimDefinition = {
     'no-table': 'この配置場所と遮蔽材の組み合わせには線量の表がありません。「面密度を入れる」にしてください',
     'shield-unreachable': '線量の表の範囲では、目標の線量に届きません',
     'dumbbell-shield': 'ダンベルでは、自転させない遮蔽は選べません',
-    'hull-limit': 'この材料・安全率では、床の速さが速すぎて、どれだけ厚くしても壁を作れません（半径を小さくするか、強い材料にしてください）',
-    'too-wide': '床の幅が、管・モジュールの直径（遮蔽を除いた内側）以上です。管・モジュールを太くするか、床面積を小さくしてください',
-    'torus-axis': '管が回転の中心軸に届いてしまいます。半径を大きくするか、管を細くしてください',
+    'hull-limit':
+      '壁の速さ {v} m/s が、この材料・安全率で作れる上限 {vmax} m/s を超えていて、どれだけ厚くしても壁を作れません（壁が自分の重さの遠心力だけで許容応力に達する）。同じ重力なら、半径が大きいほど回転はゆっくりでも壁は速く動きます。この重力で作れる半径は {R} km までです（気圧と荷重があるとさらに小さい）。半径を小さくするか、強さ ÷ 密度の大きい材料にしてください',
+    'tube-shield': '自転させる遮蔽の厚さ {t} m が、管・モジュールの半径以上で、中に空間が残りません。管・モジュールを太くするか、遮蔽を自転させない・薄くしてください',
+    'torus-wide':
+      '床の幅 {w} m が、管の内側の直径 {d} m 以上です。床は管の断面の弦なので、直径より広くできません（床の幅 = 床面積 ÷ 床の円周。自転させる遮蔽の分だけ内側が狭い）。管の半径を {a} m より大きくするか、床面積を {A} m² より小さくするか、基準の床の半径を大きくしてください',
+    'dumbbell-wide': '床の幅 {w} m が、モジュールの内側の直径 {d} m 以上です（自転させる遮蔽の分だけ内側が狭い）。モジュールを太くするか、床の幅を狭くしてください',
+    'torus-axis':
+      '管の中心の半径 {Rc} m が、管の半径 {a} m 以下で、管が回転の中心軸に届いてしまいます。基準の床の半径を {R} m より大きくするか、管を細くしてください',
     'dumbbell-axis': 'モジュールが回転の中心軸に届いてしまいます。半径を大きくするか、モジュールを細くしてください',
-    'sphere-area': '床面積が、床にできる範囲（重力が下限以上の帯）より大きいです。半径を大きくするか、重力の下限を下げてください',
-    'sphere-small': 'この段・層の数と重力の下限では、床面積は {A} m² 以上になります（段・層を減らすか、重力の下限を上げてください）',
-    'deck-out': '上の階が管・モジュールの中に収まりません。階の数か高さを減らしてください',
+    'sphere-area': '床面積が、床にできる範囲（重力が下限以上の帯）より大きいです。この半径と重力の下限で床にできるのは {A} m² までです。半径を大きくするか、重力の下限を下げてください',
+    'sphere-gmin':
+      '床にする最も小さい重力は、基準の床の重力より小さくしてください。球の内面は赤道（基準の床）から離れるほど回転軸に近づいて重力が弱くなるので、同じ値では帯の幅（段・層の範囲）が 0 になります',
+    'sphere-small':
+      'この半径・段・層の数・重力の下限では、床面積（すべての段・層の合計）は {A} m² 以上になります。一番上（内側）の段・層は半径 {r} m の円筒の床で、球の壁まで伸びるので、球が最も小さい（半径 = 基準の床の半径）ときでも長さ {L} m あるためです。床面積を増やすか、基準の床の半径を小さくするか、重力の下限を上げてください（一番上の段・層が外に寄り、短くなる）',
+    'deck-out': '上の階が管・モジュールの天井に届いてしまいます。この階の高さでは、上の階は {n} 階までです。階の数か高さを減らすか、管・モジュールを太くしてください',
     tilt: '床の端の傾きが {deg}° あります（5° を超えると歩きにくい。参考値）',
     rpm: '回転数 {n} rpm が上限を超えています（めまいや乗り物酔いを起こしやすい）',
     coriolis: 'コリオリの力が重力の {k}% あり、上限を超えています（速く動くと、重さが大きく変わって感じる）',
@@ -689,10 +699,12 @@ export const spaceColony: SimDefinition = {
     const r = computeColony(toColonyInputs(i))
     const outputs: Record<string, OutputValue> = {}
     const o = r.outputs
+    const num = (k: string, v: number | undefined) => {
+      if (v !== undefined && Number.isFinite(v)) outputs[k] = { kind: 'number', value: v }
+    }
+    // エラーのときも、回転と材料の上限は出す
+    if (r.spin) for (const k of ['n_rpm', 'omega', 'v', 'period', 'v_max', 'R_max'] as const) num(k, r.spin[k])
     if (o) {
-      const num = (k: string, v: number | undefined) => {
-        if (v !== undefined && Number.isFinite(v)) outputs[k] = { kind: 'number', value: v }
-      }
       for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
         num(k, o[k])
       }

@@ -158,6 +158,8 @@ export interface OutputDef {
   noteKey?: string
   /** 個数など：指数表記にせず、3桁ごとに区切り、小数点以下をこの桁数まで書く */
   decimals?: number
+  /** 計算がエラーでも、値があれば表示する（例：形や材料に依らない回転数。エラーの原因を見られるように） */
+  showOnError?: boolean
 }
 
 /** 計算のメッセージ。文言はモジュールの messages から code で引く */

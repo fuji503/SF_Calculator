@@ -154,8 +154,21 @@ export interface ColonyOutputs {
   P_profile: { r: number[]; y: number[] }
 }
 
+/** 回転（形や材料に依らない）。構造などでエラーになっても出す */
+export interface SpinOutputs {
+  omega: number
+  n_rpm: number
+  period: number
+  v: number
+  /** 殻の材料で決まる、作れる接線速度の上限と最大の半径（ダンベルは出さない） */
+  v_max?: number
+  R_max?: number
+}
+
 export interface ColonyResult {
   outputs?: ColonyOutputs
+  /** エラーのときも出す回転の値 */
+  spin?: SpinOutputs
   warnings: Message[]
   errors: Message[]
 }
@@ -255,6 +268,24 @@ interface Inertia {
 // ---------------------------------------------------------------------------
 
 export function computeColony(p: ColonyInputs): ColonyResult {
+  const r = computeAll(p)
+  if (r.outputs || !(p.g_f > 0 && p.R_f > 0)) return r
+  const omega = Math.sqrt(p.g_f / p.R_f)
+  const self = p.sigma_u > 0 && p.rho > 0 && p.SF > 0 && p.shape !== 'dumbbell' ? p.sigma_u / p.SF / p.rho : undefined
+  return {
+    ...r,
+    spin: {
+      omega,
+      n_rpm: (60 * omega) / (2 * Math.PI),
+      period: (2 * Math.PI) / omega,
+      v: omega * p.R_f,
+      v_max: self === undefined ? undefined : Math.sqrt(self),
+      R_max: self === undefined ? undefined : self / p.g_f,
+    },
+  }
+}
+
+function computeAll(p: ColonyInputs): ColonyResult {
   const warnings: Message[] = []
   const errors: Message[] = []
   const positive: (keyof ColonyInputs)[] = ['A_f', 'g_f', 'R_f', 'P_f', 'T_in', 'sigma_u', 'rho', 'SF']
@@ -331,7 +362,8 @@ export function computeColony(p: ColonyInputs): ColonyResult {
       const r = p.R_f - k * p.h_deck
       const dk = d - k * p.h_deck
       if (Math.abs(dk) >= a_i) {
-        errors.push({ code: 'deck-out', keys: ['n_deck', 'h_deck'] })
+        // 管・モジュールの天井（中心から a_i 上）に届かない階の数
+        errors.push({ code: 'deck-out', keys: ['n_deck', 'h_deck'], params: { n: Math.max(0, Math.ceil((d + a_i) / p.h_deck) - 1) } })
         return false
       }
       floors.push({ label: `上の階 ${k}`, r, area: length(r) * 2 * Math.sqrt(a_i ** 2 - dk ** 2), m: p.m_deck })
@@ -339,7 +371,13 @@ export function computeColony(p: ColonyInputs): ColonyResult {
     return true
   }
 
-  const tooThick = () => errors.push({ code: 'hull-limit', keys: ['sigma_u', 'rho', 'SF', 'R_f'] })
+  // 殻の速さが、材料の強さ ÷ 密度で決まる上限を超える（自分の重さの遠心力だけで許容応力に達する）
+  const tooThick = () =>
+    errors.push({
+      code: 'hull-limit',
+      keys: ['sigma_u', 'rho', 'SF', 'R_f'],
+      params: { v: vHull, vmax: Math.sqrt(sa / p.rho), R: sa / p.rho / p.g_f / 1000 },
+    })
   const nonRotShield = (r_mid: number, area: number) => {
     A_shield = area
     rOuter = r_mid + t_sh / 2
@@ -402,10 +440,14 @@ export function computeColony(p: ColonyInputs): ColonyResult {
     case 'torus': {
       const a_i = p.a - tsr
       const w = p.A_f / (2 * Math.PI * p.R_f)
-      if (!(a_i > 0) || w >= 2 * a_i) return { warnings, errors: [{ code: 'too-wide', keys: ['a', 'A_f'] }] }
+      if (!(a_i > 0)) return { warnings, errors: [{ code: 'tube-shield', keys: ['a', 'sigma_sh', 'rho_sh'], params: { t: tsr } }] }
+      if (w >= 2 * a_i) {
+        // 床は管の断面の弦なので、内側の直径より広くできない（床の幅 = 床面積 ÷ 床の円周）
+        return { warnings, errors: [{ code: 'torus-wide', keys: ['a', 'A_f', 'R_f'], params: { w, d: 2 * a_i, A: 2 * Math.PI * p.R_f * 2 * a_i, a: w / 2 + tsr } }] }
+      }
       const d = Math.sqrt(a_i ** 2 - w ** 2 / 4)
       const R_c = p.R_f - d
-      if (R_c - p.a <= 0) return { warnings, errors: [{ code: 'torus-axis', keys: ['a', 'R_f'] }] }
+      if (R_c - p.a <= 0) return { warnings, errors: [{ code: 'torus-axis', keys: ['a', 'R_f'], params: { Rc: R_c, a: p.a, R: p.a + d } }] }
       if (!decks(a_i, d, (r) => 2 * Math.PI * r)) return { warnings, errors }
       V_air = 2 * Math.PI ** 2 * R_c * a_i ** 2
       const M_air = rho_air * V_air
@@ -456,9 +498,11 @@ export function computeColony(p: ColonyInputs): ColonyResult {
       let zMax: number
       if (p.sphere_floor === 'band') {
         R_s = p.R_f
-        const c = Math.min(1, p.g_min / p.g_f)
+        // 球の内面は、赤道から離れるほど回転軸に近づき重力が弱くなる。帯の端で g_min
+        if (!(p.g_min > 0 && p.g_min < p.g_f)) return { warnings, errors: [{ code: 'sphere-gmin', keys: ['g_min', 'g_f'] }] }
+        const c = p.g_min / p.g_f
         const A_max = 4 * Math.PI * R_s ** 2 * Math.sqrt(1 - c ** 2)
-        if (p.A_f > A_max) return { warnings, errors: [{ code: 'sphere-area', keys: ['A_f', 'g_min'] }] }
+        if (p.A_f > A_max) return { warnings, errors: [{ code: 'sphere-area', keys: ['A_f', 'g_min', 'R_f'], params: { A: A_max } }] }
         const s = p.A_f / (4 * Math.PI * R_s ** 2)
         const phi = Math.asin(s)
         zMax = R_s * s
@@ -468,7 +512,8 @@ export function computeColony(p: ColonyInputs): ColonyResult {
         extraRows.push({ label: '帯の端', r: R_s * Math.cos(phi) })
       } else {
         const n = Math.round(p.n_lv)
-        if (!(n >= 2) || !(p.g_min > 0 && p.g_min < p.g_f)) return { warnings, errors: [{ code: 'range', keys: ['n_lv', 'g_min'] }] }
+        if (!(p.g_min > 0 && p.g_min < p.g_f)) return { warnings, errors: [{ code: 'sphere-gmin', keys: ['g_min', 'g_f'] }] }
+        if (!(n >= 2)) return { warnings, errors: [{ code: 'range', keys: ['n_lv'] }] }
         const rk = Array.from({ length: n }, (_, k) => p.R_f * (1 - (k * (1 - p.g_min / p.g_f)) / (n - 1)))
         const areas = (Rs: number) => {
           const z = rk.map((r) => Math.sqrt(Math.max(0, Rs ** 2 - r ** 2)))
@@ -476,7 +521,9 @@ export function computeColony(p: ColonyInputs): ColonyResult {
         }
         const total = (Rs: number) => areas(Rs).reduce((s, x) => s + x, 0)
         // 球の半径は基準の床の半径より小さくできないので、床面積には下限がある
-        if (total(p.R_f) > p.A_f) return { warnings, errors: [{ code: 'sphere-small', keys: ['A_f', 'n_lv', 'g_min'], params: { A: total(p.R_f) } }] }
+        if (total(p.R_f) > p.A_f) {
+          return { warnings, errors: [{ code: 'sphere-small', keys: ['A_f', 'R_f', 'g_min'], params: { A: total(p.R_f), r: rk[n - 1], L: 2 * Math.sqrt(p.R_f ** 2 - rk[n - 1] ** 2) } }] }
+        }
         R_s = solveIncreasing(total, p.A_f, p.R_f)
         const A = areas(R_s)
         const name = p.sphere_floor === 'terrace' ? '段' : '層'
@@ -524,7 +571,8 @@ export function computeColony(p: ColonyInputs): ColonyResult {
 
     case 'dumbbell': {
       const a_i = p.a_m - tsr
-      if (!(a_i > 0) || !(p.w_m > 0) || p.w_m >= 2 * a_i) return { warnings, errors: [{ code: 'too-wide', keys: ['a_m', 'w_m'] }] }
+      if (!(a_i > 0)) return { warnings, errors: [{ code: 'tube-shield', keys: ['a_m', 'sigma_sh', 'rho_sh'], params: { t: tsr } }] }
+      if (!(p.w_m > 0) || p.w_m >= 2 * a_i) return { warnings, errors: [{ code: 'dumbbell-wide', keys: ['a_m', 'w_m'], params: { w: p.w_m, d: 2 * a_i } }] }
       const d = Math.sqrt(a_i ** 2 - p.w_m ** 2 / 4)
       const R_cm = p.R_f - d
       if (R_cm - p.a_m <= 0) return { warnings, errors: [{ code: 'dumbbell-axis', keys: ['a_m', 'R_f'] }] }

@@ -32,7 +32,10 @@ export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup 
   const others = shown.filter((o) => !o.primary)
   const groups = def.outputGroups ?? []
   const ungrouped = others.filter((o) => !o.group || !groups.some((g) => g.id === o.group))
-  const row = (o: OutputDef) => <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} />
+  // エラーのときは、エラーでも出す出力（showOnError）だけ値を出し、ほかは薄く「—」にする
+  const rowResult = (o: OutputDef) => (failed && !o.showOnError ? null : result)
+  const dim = (o: OutputDef) => failed && !(o.showOnError && result?.outputs[o.key])
+  const row = (o: OutputDef) => <OutputRow key={o.key} o={o} card={card} result={rowResult(o)} onUnit={onUnit} dim={dim(o)} />
   const Diagram = simDiagrams[def.id]
 
   return (
@@ -51,9 +54,9 @@ export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup 
         </ul>
       )}
 
-      <dl className={`space-y-2 ${failed ? 'opacity-50' : ''}`}>
+      <dl className="space-y-2">
         {primary.map((o) => (
-          <OutputRow key={o.key} o={o} card={card} result={failed ? null : result} onUnit={onUnit} large />
+          <OutputRow key={o.key} o={o} card={card} result={rowResult(o)} onUnit={onUnit} dim={dim(o)} large />
         ))}
       </dl>
       {Diagram && result && !failed && (
@@ -62,7 +65,7 @@ export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup 
         </Suspense>
       )}
       {ungrouped.length > 0 && (
-        <dl className={`space-y-1 border-t border-slate-800 pt-2 ${failed ? 'opacity-50' : ''}`}>{ungrouped.map(row)}</dl>
+        <dl className="space-y-1 border-t border-slate-800 pt-2">{ungrouped.map(row)}</dl>
       )}
       {groups.map((g) => {
         const items = others.filter((o) => o.group === g.id)
@@ -70,7 +73,7 @@ export function OutputPanel({ def, card, result, pending, onUnit, onToggleGroup 
         const id = OUTPUT_GROUP_PREFIX + g.id
         return (
           <GroupSection key={g.id} title={g.label} open={!card.ui.closed.includes(id)} onToggle={() => onToggleGroup(id)}>
-            <dl className={`space-y-1 ${failed ? 'opacity-50' : ''}`}>{items.map(row)}</dl>
+            <dl className="space-y-1">{items.map(row)}</dl>
           </GroupSection>
         )
       })}
@@ -97,17 +100,21 @@ function OutputRow({
   result,
   onUnit,
   large = false,
+  dim = false,
 }: {
   o: OutputDef
   card: Card
   result: ComputeResult | null
   onUnit: Props['onUnit']
   large?: boolean
+  /** 計算がエラーで値を出さない行は薄くする */
+  dim?: boolean
 }) {
   const v = result?.outputs[o.key]
+  const fade = dim ? ' opacity-50' : ''
   if (o.kind === 'series') {
     return (
-      <div>
+      <div className={fade}>
         <dt>
           <ParamLabel label={o.label} symbol={o.symbol} description={o.description} />
         </dt>
@@ -119,7 +126,7 @@ function OutputRow({
   }
   if (o.kind === 'table') {
     return (
-      <div>
+      <div className={fade}>
         <dt>
           <ParamLabel label={o.label} symbol={o.symbol} description={o.description} />
         </dt>
@@ -131,7 +138,7 @@ function OutputRow({
   }
   const note = o.noteKey ? result?.outputs[o.noteKey] : undefined
   return (
-    <div className="flex items-center justify-between gap-x-3">
+    <div className={`flex items-center justify-between gap-x-3${fade}`}>
       <dt className="min-w-0 flex-1">
         <ParamLabel label={o.label} symbol={o.symbol} description={o.description} />
         {note?.kind === 'text' && note.value && <span className="block text-xs text-slate-500">{note.value}</span>}

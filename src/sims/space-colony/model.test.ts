@@ -100,6 +100,10 @@ describe('T3 外壁（シリンダ、アルミ合金 7075、遮蔽なし）', ()
   it('床が速すぎるとエラー', () => {
     const r = computeColony(base({ R_f: 10_000, A_f: 1e8 }))
     expect(r.errors.map((e) => e.code)).toEqual(['hull-limit'])
+    expect4(Number(r.errors[0].params!.vmax), 299.2)
+    // エラーでも回転の値は出す
+    expect4(r.spin!.v, Math.sqrt(G0 * 10_000))
+    expect4(r.spin!.R_max!, 9127)
   })
 })
 
@@ -155,6 +159,12 @@ describe('T11 球の帯', () => {
   it('段々の床：床面積が小さすぎるとエラー', () => {
     const r = computeColony(base({ shape: 'sphere', sphere_floor: 'terrace', A_f: 3e5 }))
     expect(r.errors.map((e) => e.code)).toEqual(['sphere-small'])
+    // 添付の例：半径 200 m、0.7 G、一番上の段 0.1 G、2段 → 一番上の段は半径 28.57 m、長さ 395.9 m、約 7.1万 m²
+    const e = computeColony(base({ shape: 'sphere', sphere_floor: 'terrace', R_f: 200, g_f: 0.7 * G0, g_min: 0.1 * G0, n_lv: 2, A_f: 100 })).errors[0]
+    expect(e.code).toBe('sphere-small')
+    expect4(Number(e.params!.r), 200 / 7)
+    expect4(Number(e.params!.L), 2 * Math.sqrt(200 ** 2 - (200 / 7) ** 2))
+    expect4(Number(e.params!.A), 71_071, 1e-3)
   })
 })
 
@@ -171,7 +181,20 @@ describe('T12 トーラスの管の壁', () => {
   })
   it('床の幅が管の直径以上ならエラー', () => {
     const r = computeColony(base({ shape: 'torus', R_f: 880, A_f: 2 * Math.PI * 880 * 131 }))
-    expect(r.errors.map((e) => e.code)).toEqual(['too-wide'])
+    expect(r.errors.map((e) => e.code)).toEqual(['torus-wide'])
+    expect4(Number(r.errors[0].params!.w), 131)
+    expect4(Number(r.errors[0].params!.d), 130)
+    expect4(Number(r.errors[0].params!.A), 2 * Math.PI * 880 * 130)
+  })
+  it('管が中心軸に届く・上の階が収まらないときは、数値を出す', () => {
+    const axis = computeColony(base({ shape: 'torus', R_f: 100, a: 65, A_f: 2 * Math.PI * 100 * 100 })).errors[0]
+    expect(axis.code).toBe('torus-axis')
+    expect(Number(axis.params!.R)).toBeGreaterThan(100)
+    // 床は管の中心から 50 m 外。天井（中心から 65 m 内）まで 115 m → 4 m の階は 28 階まで（29 階目は天井の外）
+    const w = 2 * Math.sqrt(65 ** 2 - 50 ** 2)
+    const deck = computeColony(base({ shape: 'torus', R_f: 880, A_f: 2 * Math.PI * 880 * w, n_deck: 30 })).errors[0]
+    expect(deck.code).toBe('deck-out')
+    expect(deck.params!.n).toBe(28)
   })
 })
 
@@ -235,5 +258,20 @@ describe('大気の組成（1.2）', () => {
   it('酸素分圧が気圧を超えるとエラー', () => {
     const r = computeColony(base({ P_f: 20_000, o2_by_pressure: true, p_O2: 21_230 }))
     expect(r.errors.map((e) => e.code)).toEqual(['o2-high'])
+  })
+})
+
+describe('球の重力の下限（1.3）', () => {
+  it('基準の床の重力と同じだと、帯の幅が 0 なので専用のエラー', () => {
+    for (const sphere_floor of ['band', 'terrace', 'concentric'] as const) {
+      const r = computeColony(base({ shape: 'sphere', sphere_floor, g_min: G0 }))
+      expect(r.errors.map((e) => e.code)).toEqual(['sphere-gmin'])
+      expect(r.spin!.n_rpm).toBeGreaterThan(0)
+    }
+  })
+  it('床面積が大きすぎるときは、床にできる最大の面積を出す', () => {
+    const r = computeColony(base({ shape: 'sphere', A_f: 1e7 }))
+    expect(r.errors[0].code).toBe('sphere-area')
+    expect4(Number(r.errors[0].params!.A), 4 * Math.PI * 250 ** 2 * Math.sqrt(1 - 0.49))
   })
 })
