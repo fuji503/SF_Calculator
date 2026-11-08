@@ -1,7 +1,7 @@
 import { fixedUnit, U, unitDefs, type UnitDef } from '../../core/physics/units.ts'
 import type { ComputeResult, Inputs, OutputDef, OutputValue, ParamDef, SimDefinition } from '../types.ts'
 import { ATMOSPHERES, COLONY_PRESETS, LOCATIONS, MATERIALS, SHIELD_DENSITY, type Shape, type ShieldMat, type SphereFloor } from './data.ts'
-import { computeColony, G0, type ColonyInputs } from './model.ts'
+import { computeColony, G0, type Cap, type ColonyInputs, type Taper } from './model.ts'
 
 const CUSTOM = 'custom'
 const shapeIs =
@@ -16,6 +16,14 @@ const hasDecks = shapeIs('torus', 'dumbbell')
 const sphereLevels = (i: Inputs) => isSphere(i) && i.sphere_floor !== 'band'
 const byTarget = (i: Inputs) => !i.shield_by
 const nonRot = (i: Inputs) => !i.shield_rot && !isDumbbell(i)
+const spokeShare = (i: Inputs) => !isDumbbell(i) && Number(i.f_s) > 0
+const rowSpokes = (i: Inputs) => shapeIs('cylinder', 'sphere')(i) && spokeShare(i)
+const tubeTies = (i: Inputs) => hasDecks(i) && Number(i.f_t) > 0
+const capSupported = (i: Inputs) => isCyl(i) && i.cap !== 'hemi'
+/** スポーク・テザー（放射状の部材）があるか */
+const radial = (i: Inputs) => spokeShare(i) || isDumbbell(i)
+/** スポークの材料を使う部材があるか */
+const anyMember = (i: Inputs) => radial(i) || tubeTies(i) || capSupported(i)
 
 const gravity: UnitDef = { options: [{ id: 'm/s2', label: 'm/s²', factor: 1 }, { id: 'G', label: 'G', factor: G0 }], defaultId: 'G' }
 const rpm = fixedUnit('rpm')
@@ -30,6 +38,7 @@ const fraction = unitDefs.fraction
 
 const kal = COLONY_PRESETS.kalpana.values
 const al = MATERIALS.al7075
+const ht = MATERIALS.ht780
 
 const inputs: ParamDef[] = [
   // §9 構成の例、§3.1 形と基準の床
@@ -313,8 +322,9 @@ const inputs: ParamDef[] = [
     description: '選ぶと、強さと密度が入る。強さ ÷ 密度が大きいほど壁が軽く、大きなコロニーを作れる。繊維は、円周方向（と軸方向）に巻くとみなす',
     options: [...Object.entries(MATERIALS).map(([value, m]) => ({ value, label: m.label })), { value: CUSTOM, label: 'カスタム' }],
     default: 'al7075',
-    presets: (v): Inputs => (MATERIALS[v] ? { sigma_u: MATERIALS[v].sigma_u, rho: MATERIALS[v].rho } : {}),
+    presets: (v): Inputs => (MATERIALS[v] ? { sigma_u: MATERIALS[v].sigma_u, rho: MATERIALS[v].rho, E_h: MATERIALS[v].E } : {}),
     customValue: CUSTOM,
+    customKeys: ['sigma_u', 'rho'],
   },
   {
     kind: 'number',
@@ -339,6 +349,19 @@ const inputs: ParamDef[] = [
     default: al.rho,
     min: 0,
     minExclusive: true,
+  },
+  {
+    kind: 'number',
+    key: 'E_h',
+    group: 'struct',
+    label: '外壁の材料のヤング率',
+    symbol: 'E',
+    description: 'スポークの長さの調整量（殻とスポークの伸びの差）に使う。小さいほど殻が伸びやすい',
+    unit: strength,
+    default: al.E,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: rowSpokes,
   },
   {
     kind: 'number',
@@ -373,6 +396,205 @@ const inputs: ParamDef[] = [
     default: 500,
     min: 0,
     visibleWhen: (i) => (hasDecks(i) && Number(i.n_deck) > 0) || sphereLevels(i),
+  },
+
+  // §3.5 スポークと引っ張り材、§3.6 端のふた
+  {
+    kind: 'number',
+    key: 'f_s',
+    group: 'spoke',
+    label: 'スポークが受ける割合',
+    symbol: 'f_s',
+    description:
+      '0% は壁（床）だけ、100% はスポークだけ。シリンダ・球は外向きの荷重（シリンダは気圧も、球は床の荷重だけ）、トーラスは輪の遠心力のうち、スポークが受ける割合。大きいほど壁は薄くなり、作れる半径の上限が上がるが、スポークとリングが重くなる（気圧だけなら、全体の質量はあまり減らない）',
+    unit: fraction,
+    default: 0,
+    min: 0,
+    max: 1,
+    visibleWhen: (i) => !isDumbbell(i),
+  },
+  {
+    kind: 'number',
+    key: 'N_th',
+    group: 'spoke',
+    label: '1列のスポークの本数',
+    symbol: 'N_\\theta',
+    description: '円周方向の本数。多いほど、スポークの間でふくらむリングが短くなり軽くなる',
+    unit: fixedUnit('本'),
+    default: 12,
+    min: 3,
+    integer: true,
+    visibleWhen: rowSpokes,
+  },
+  {
+    kind: 'number',
+    key: 's_z',
+    group: 'spoke',
+    label: 'スポークの列の間隔',
+    symbol: 's_z',
+    description: '軸方向の列の間隔（長さを割り切れるように直す）。狭いほど、列の間で殻がふくらむ張力が小さく、殻が薄くなるが、列が増える',
+    unit: length,
+    default: 50,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: rowSpokes,
+  },
+  {
+    kind: 'number',
+    key: 'N_hub',
+    group: 'spoke',
+    label: 'ハブのスポークの本数',
+    symbol: 'N_{hub}',
+    description: 'スタンフォード・トーラスは6本。少ないと、スポークの間で管が曲げを受ける（曲げは評価しない）',
+    unit: fixedUnit('本'),
+    default: 6,
+    min: 1,
+    integer: true,
+    visibleWhen: (i) => isTorus(i) && spokeShare(i),
+  },
+  {
+    kind: 'number',
+    key: 'n_teth',
+    group: 'spoke',
+    label: 'テザーの本数（片側）',
+    symbol: 'n_{teth}',
+    description: 'モジュール1つをつなぐ本数。テザーの太さは本数に反比例し、合計の質量はほぼ変わらない',
+    unit: fixedUnit('本'),
+    default: 4,
+    min: 1,
+    integer: true,
+    visibleWhen: isDumbbell,
+  },
+  {
+    kind: 'number',
+    key: 'r_hub',
+    group: 'spoke',
+    label: 'ハブの半径',
+    symbol: 'r_{hub}',
+    description: 'スポーク・テザーの根元、中心の軸の半径',
+    unit: length,
+    default: 5,
+    min: 0,
+    visibleWhen: (i) => radial(i) || capSupported(i),
+  },
+  {
+    kind: 'enum',
+    key: 'taper',
+    group: 'spoke',
+    label: 'スポーク・テザーのテーパー',
+    description:
+      '応力が一定：根元ほど太くして、どこでも許容応力にする（最も軽い）。なし：太さが一定（根元の応力で決まり、重い。速いと作れない）。直線：根元と先の太さの比を決めて直線で細くする',
+    options: [
+      { value: 'const', label: '応力が一定' },
+      { value: 'none', label: 'なし（太さが一定）' },
+      { value: 'linear', label: '直線' },
+    ],
+    default: 'const',
+    visibleWhen: radial,
+  },
+  {
+    kind: 'number',
+    key: 'k_tp',
+    group: 'spoke',
+    label: '根元と先の太さ（断面積）の比',
+    symbol: 'k_{tp}',
+    unit: fixedUnit(''),
+    default: 1.2,
+    min: 1,
+    visibleWhen: (i) => radial(i) && i.taper === 'linear',
+  },
+  {
+    kind: 'number',
+    key: 'f_t',
+    group: 'spoke',
+    label: '管・モジュールの中の引っ張り材が受ける割合',
+    symbol: 'f_t',
+    description: '気圧のうち、管・モジュールの断面の中心から壁へ放射状に張る引っ張り材（柱やケーブル）が受ける割合。大きいほど壁が薄くなる',
+    unit: fraction,
+    default: 0,
+    min: 0,
+    max: 1,
+    visibleWhen: hasDecks,
+  },
+  {
+    kind: 'number',
+    key: 'N_t',
+    group: 'spoke',
+    label: '1列の引っ張り材の本数',
+    symbol: 'N_t',
+    unit: fixedUnit('本'),
+    default: 8,
+    min: 1,
+    integer: true,
+    visibleWhen: tubeTies,
+  },
+  {
+    kind: 'number',
+    key: 's_t',
+    group: 'spoke',
+    label: '引っ張り材の列の間隔',
+    symbol: 's_t',
+    description: '管・モジュールの長さ方向の間隔。狭いほど、列の間で壁がふくらむ張力が小さい',
+    unit: length,
+    default: 10,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: tubeTies,
+  },
+  {
+    kind: 'enum',
+    key: 'cap',
+    group: 'spoke',
+    label: '端のふたの支え方',
+    description:
+      '半球の殻：支えを使わず、殻だけで気圧を受ける（構造が簡単）。中心の軸：ふたを平らに近い形にして、軸と外周の間でふくらませ、内側の気圧を軸が受ける（端の空間が増える）。中心の軸と同心の引っ張り材：ふたを同心の輪で区切り、各輪の気圧を軸方向の引っ張り材が受ける（ふたが薄くなる）',
+    options: [
+      { value: 'hemi', label: '半球の殻（支えなし）' },
+      { value: 'spine', label: '中心の軸で支える' },
+      { value: 'ties', label: '中心の軸と同心の引っ張り材で支える' },
+    ],
+    default: 'hemi',
+    visibleWhen: isCyl,
+  },
+  {
+    kind: 'number',
+    key: 'n_tie',
+    group: 'spoke',
+    label: '同心の引っ張り材の輪の数',
+    symbol: 'n_{tie}',
+    description: '多いほどふたが薄くなるが、外側の引っ張り材ほど自分の遠心力でたるむ',
+    unit: fixedUnit(''),
+    default: 3,
+    min: 1,
+    integer: true,
+    visibleWhen: (i) => isCyl(i) && i.cap === 'ties',
+  },
+  {
+    kind: 'enum',
+    key: 'mat_spoke',
+    group: 'spoke',
+    label: 'スポーク・引っ張り材の材料',
+    description: 'スポーク・テザー・引っ張り材・リング・中心の軸に使う。強さ ÷ 密度が大きいほど、自分の遠心力が小さく、細く軽くなる',
+    options: [...Object.entries(MATERIALS).map(([value, m]) => ({ value, label: m.label })), { value: CUSTOM, label: 'カスタム' }],
+    default: 'ht780',
+    presets: (v): Inputs => (MATERIALS[v] ? { sigma_us: MATERIALS[v].sigma_u, rho_s: MATERIALS[v].rho, E_s: MATERIALS[v].E } : {}),
+    customValue: CUSTOM,
+    visibleWhen: anyMember,
+  },
+  { kind: 'number', key: 'sigma_us', group: 'spoke', label: 'スポークの材料の強さ', symbol: '\\sigma_{us}', unit: strength, default: ht.sigma_u, min: 0, minExclusive: true, visibleWhen: anyMember },
+  { kind: 'number', key: 'rho_s', group: 'spoke', label: 'スポークの材料の密度', symbol: '\\rho_s', unit: unitDefs.density, default: ht.rho, min: 0, minExclusive: true, visibleWhen: anyMember },
+  {
+    kind: 'number',
+    key: 'E_s',
+    group: 'spoke',
+    label: 'スポークの材料のヤング率',
+    symbol: 'E_s',
+    description: 'スポークの伸び（長さの調整量）に使う',
+    unit: strength,
+    default: ht.E,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: rowSpokes,
   },
 
   // §3.8 放射線遮蔽と配置場所
@@ -609,10 +831,32 @@ const outputs: OutputDef[] = [
     label: '外壁の厚さ',
     symbol: 't',
     unit: thin,
-    description: '気圧、床に載るものと遮蔽（自転させるとき）の遠心力、壁自身の遠心力を受ける薄い殻の厚さ（スポークなし）。トーラスは管の壁、ダンベルはモジュールの壁',
+    description: '気圧、床に載るものと遮蔽（自転させるとき）の遠心力、壁自身の遠心力のうち、スポーク・引っ張り材が受ける分を除いた荷重を受ける薄い殻の厚さ。トーラスは管の壁、ダンベルはモジュールの壁',
   },
   { key: 'm_hull', kind: 'number', group: 'struct', label: '外壁の面密度', unit: areal },
-  { key: 't_cap', kind: 'number', group: 'struct', label: '端のふた（半球）の厚さ', unit: thin, visibleWhen: isCyl },
+  { key: 't_cap', kind: 'number', group: 'struct', label: '端のふたの厚さ', unit: thin, visibleWhen: isCyl },
+  {
+    key: 'member_table',
+    kind: 'table',
+    group: 'struct',
+    label: 'スポーク・引っ張り材の一覧',
+    description: '直径は、中身の詰まった丸い断面とした値（ケーブルや管にすると変わる）。リングは列ごとの1本、引っ張り材は1本の値',
+    visibleWhen: anyMember,
+  },
+  { key: 'F_spoke', kind: 'number', group: 'struct', label: 'スポーク・テザー1本の先の力', unit: { options: [{ id: 'N', label: 'N', factor: 1 }, { id: 'MN', label: 'MN', factor: 1e6 }], defaultId: 'MN' }, visibleWhen: radial },
+  { key: 'n_rows', kind: 'number', group: 'struct', label: 'スポークの列の数', unit: fixedUnit('列'), decimals: 0, visibleWhen: rowSpokes },
+  { key: 's_zr', kind: 'number', group: 'struct', label: 'スポークの列の実際の間隔', unit: length, visibleWhen: rowSpokes },
+  {
+    key: 'dl_spoke',
+    kind: 'number',
+    group: 'struct',
+    label: 'スポークの長さの調整量',
+    unit: thin,
+    visibleWhen: rowSpokes,
+    description:
+      '殻の半径の伸びからスポークの伸びを引いた値。決めた割合で荷重を分け合うには、スポークをこの分だけ短く作って、初めに張力をかけておく（負なら長く作る）。実際の分担は、伸びやすさと初めの張力で決まる',
+  },
+  { key: 'tie_sag', kind: 'number', group: 'struct', label: '同心の引っ張り材のたるみ（支点の間隔に対する比）', unit: fraction, visibleWhen: (i) => isCyl(i) && i.cap === 'ties', description: '自分の遠心力で外にたわむ。支点はスポークの列（なければ両端）。5% を超えると警告' },
   {
     key: 'v_max',
     kind: 'number',
@@ -649,6 +893,7 @@ export const spaceColony: SimDefinition = {
     { id: 'dims', label: '形ごとの寸法' },
     { id: 'atm', label: '大気' },
     { id: 'struct', label: '構造材と床の荷重' },
+    { id: 'spoke', label: 'スポーク・引っ張り材・端のふた' },
     { id: 'shield', label: '放射線遮蔽と配置場所' },
     { id: 'comfort', label: '快適さの基準と高さの表' },
   ],
@@ -693,6 +938,12 @@ export const spaceColony: SimDefinition = {
     'o2-high': '酸素が気圧（水蒸気を除く）より多くなります。酸素分圧を下げるか、気圧を上げてください',
     hypoxia: '酸素分圧が {p} kPa で、標高 2500 m の空気（約 15.6 kPa）より低いです。息苦しく、高山病のようになるおそれがあります',
     'o2-fire': '酸素の割合が {f}% あり、燃えやすくなります（NASA の探査用の大気は 34% を上限にしている。燃えにくい材料を選ぶ必要がある）',
+    'cap-limit': '端のふたの外周の速さ {v} m/s が、外壁の材料で作れる上限 {vmax} m/s を超えていて、ふたを作れません（ふたはスポークで支えないので、自分の重さの遠心力をそのまま受ける）。半径を小さくするか、強さ ÷ 密度の大きい材料にしてください',
+    'spoke-limit': 'スポーク・テザーの先の速さ {v} m/s では、太さが一定のスポークは自分の遠心力に耐えられません。テーパーを「応力が一定」にするか、強さ ÷ 密度の大きい材料にしてください',
+    'ring-limit': 'リングの速さ {v} m/s が、スポークの材料で作れる上限を超えています。強さ ÷ 密度の大きい材料にしてください',
+    'hub-out': 'ハブの半径が、スポーク・軸を付ける面（外壁、管の内側の壁、モジュールの上の壁）以上です。ハブを小さくしてください',
+    'tie-sag': '同心の引っ張り材が、自分の遠心力で支点の間隔の {k}% たるみます。スポークの列を増やす（支点を増やす）か、輪の数を減らすか、強さ ÷ 密度の大きい材料にしてください',
+    'torus-bending': 'ハブのスポークの間で、管は曲げを受けます（この計算では評価しません）',
     leo500: '赤道上の低軌道 500 km では、遮蔽がなくても 20 mSv/年 を満たします（Globus & Strout）',
   },
   compute(i: Inputs): ComputeResult {
@@ -705,7 +956,7 @@ export const spaceColony: SimDefinition = {
     // エラーのときも、回転と材料の上限は出す
     if (r.spin) for (const k of ['n_rpm', 'omega', 'v', 'period', 'v_max', 'R_max'] as const) num(k, r.spin[k])
     if (o) {
-      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
+      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'F_spoke', 'n_rows', 's_zr', 'dl_spoke', 'tie_sag', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
         num(k, o[k])
       }
       num('sigma_sh', o.sigma_sh)
@@ -730,6 +981,12 @@ export const spaceColony: SimDefinition = {
         kind: 'table',
         columns: ['床', '中心からの距離 [m]', '重力 [G]', '面積 [m²]'],
         rows: o.floors.map((f) => [f.label, f.r, (o.dg_dr * f.r) / G0, f.area]),
+      }
+      const dia = (A: number) => Math.sqrt((4 * A) / Math.PI) * 1000
+      outputs.member_table = {
+        kind: 'table',
+        columns: ['部材', '本数', '先の直径 [mm]', '根元の直径 [mm]', '長さ [m]', '合計の質量 [t]'],
+        rows: o.members.map((m) => [m.label, m.count, dia(m.A_tip), dia(m.A_root), m.length, (m.mass * m.count) / 1000]),
       }
       outputs.mass_table = {
         kind: 'table',
@@ -771,6 +1028,23 @@ function toColonyInputs(i: Inputs): ColonyInputs {
     SF: num('SF'),
     m_f: num('m_f'),
     m_deck: num('m_deck'),
+    E_h: num('E_h'),
+    sigma_us: num('sigma_us'),
+    rho_s: num('rho_s'),
+    E_s: num('E_s'),
+    f_s: num('f_s'),
+    N_th: num('N_th'),
+    s_z: num('s_z'),
+    N_hub: num('N_hub'),
+    n_teth: num('n_teth'),
+    r_hub: num('r_hub'),
+    taper: (['none', 'const', 'linear'].includes(String(i.taper)) ? String(i.taper) : 'const') as Taper,
+    k_tp: num('k_tp'),
+    f_t: num('f_t'),
+    N_t: num('N_t'),
+    s_t: num('s_t'),
+    cap: (['hemi', 'spine', 'ties'].includes(String(i.cap)) ? String(i.cap) : 'hemi') as Cap,
+    n_tie: num('n_tie'),
     loc: String(i.loc),
     shield_rot: Boolean(i.shield_rot),
     shield_mat: (mat in SHIELD_DENSITY ? mat : CUSTOM) as ShieldMat | 'custom',

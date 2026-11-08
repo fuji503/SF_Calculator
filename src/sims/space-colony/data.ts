@@ -33,16 +33,18 @@ export interface Material {
   sigma_u: number
   /** 密度 [kg/m³] */
   rho: number
+  /** ヤング率 [Pa] */
+  E: number
 }
 
 export const MATERIALS: Record<string, Material> = {
-  ht780: { label: '高張力鋼（HT780）※検証済み', sigma_u: 685e6, rho: 7850 },
-  al7075: { label: 'アルミ合金 7075-T6 ※検証済み', sigma_u: 503e6, rho: 2810 },
-  al2219: { label: 'アルミ合金 2219-T87 ※検証済み', sigma_u: 393e6, rho: 2840 },
-  ti64: { label: 'チタン合金 Ti-6Al-4V ※検証済み', sigma_u: 880e6, rho: 4430 },
-  cfrp: { label: '炭素繊維複合材（一方向、T700 級）※参考値', sigma_u: 2550e6, rho: 1600 },
-  kevlar: { label: 'アラミド繊維（ケブラー49）※参考値', sigma_u: 3620e6, rho: 1440 },
-  uhmwpe: { label: '超高分子量ポリエチレン繊維（SK75 級）※参考値', sigma_u: 3600e6, rho: 975 },
+  ht780: { label: '高張力鋼（HT780）※検証済み', sigma_u: 685e6, rho: 7850, E: 205e9 },
+  al7075: { label: 'アルミ合金 7075-T6 ※検証済み', sigma_u: 503e6, rho: 2810, E: 71.7e9 },
+  al2219: { label: 'アルミ合金 2219-T87 ※検証済み', sigma_u: 393e6, rho: 2840, E: 73.1e9 },
+  ti64: { label: 'チタン合金 Ti-6Al-4V ※検証済み', sigma_u: 880e6, rho: 4430, E: 113.8e9 },
+  cfrp: { label: '炭素繊維複合材（一方向、T700 級）※参考値', sigma_u: 2550e6, rho: 1600, E: 135e9 },
+  kevlar: { label: 'アラミド繊維（ケブラー49）※参考値', sigma_u: 3620e6, rho: 1440, E: 112.4e9 },
+  uhmwpe: { label: '超高分子量ポリエチレン繊維（SK75 級）※参考値', sigma_u: 3600e6, rho: 975, E: 116e9 },
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import type { Message } from '../types.ts'
 import { LOCATIONS, type DoseTable, type Shape, type ShieldMat, type SphereFloor } from './data.ts'
 
-/** スペースコロニー設計の計算（仕様書1(新規) §4。段階1：§4.1〜4.4、4.5（スポークなし）、4.7（半球）、4.9〜4.13、4.18） */
+/** スペースコロニー設計の計算（仕様書1(新規) §4。段階1：§4.1〜4.4、4.9〜4.13、4.18。段階2：§4.5〜4.7（スポーク、リング、テザー、引っ張り材、端のふたの支え）） */
 
 export const G0 = 9.80665
 const R_GAS = 8.314462618
@@ -12,6 +12,9 @@ const M_H2O = 18.015e-3
 export const P_O2_LOW = 15_650
 /** 酸素の割合の上限の目安：NASA の探査用の大気の 34% */
 export const F_O2_FIRE = 0.34
+
+export type Taper = 'none' | 'const' | 'linear'
+export type Cap = 'hemi' | 'spine' | 'ties'
 
 export interface ColonyInputs {
   shape: Shape
@@ -38,7 +41,28 @@ export interface ColonyInputs {
   T_in: number
   sigma_u: number
   rho: number
+  /** 外壁のヤング率（スポークの長さの調整量に使う） */
+  E_h: number
   SF: number
+  /** スポーク・テザー・引っ張り材・リング・中心の軸の材料 */
+  sigma_us: number
+  rho_s: number
+  E_s: number
+  /** スポークが受ける割合（シリンダ・球・トーラス） */
+  f_s: number
+  N_th: number
+  s_z: number
+  N_hub: number
+  n_teth: number
+  r_hub: number
+  taper: Taper
+  k_tp: number
+  /** 管・モジュールの中の引っ張り材が受ける割合（トーラス・ダンベル） */
+  f_t: number
+  N_t: number
+  s_t: number
+  cap: Cap
+  n_tie: number
   m_f: number
   m_deck: number
   loc: string
@@ -82,6 +106,19 @@ export interface HeightRow {
   v: number
   /** 落とした物のずれ（床より上だけ。中心の軸は Infinity） */
   drift?: number
+}
+
+/** スポークなどの部材（出力の一覧の1行） */
+export interface Member {
+  label: string
+  count: number
+  /** 1本の先と根元の断面積 */
+  A_tip: number
+  A_root: number
+  /** 1本の質量 */
+  mass: number
+  /** 1本の長さ */
+  length: number
 }
 
 export interface MassItem {
@@ -133,8 +170,20 @@ export interface ColonyOutputs {
   t_hull: number
   m_hull: number
   t_cap?: number
-  v_max: number
-  R_max: number
+  /** スポーク・テザー・引っ張り材・リング・中心の軸 */
+  members: Member[]
+  /** スポークの列の数と実際の間隔（シリンダ・球） */
+  n_rows?: number
+  s_zr?: number
+  /** スポーク・テザー1本の先の力 */
+  F_spoke?: number
+  /** スポークの長さの調整量（正：その分だけ短く作って初めの張力をかける） */
+  dl_spoke?: number
+  /** 同心の引っ張り材のたるみの比（支点の間隔に対する） */
+  tie_sag?: number
+  /** 作れる接線速度の上限と最大の半径（スポークが全部受けるときは上限なし） */
+  v_max?: number
+  R_max?: number
   F_tether?: number
   // 遮蔽
   sigma_sh: number
@@ -259,6 +308,69 @@ function solveIncreasing(f: (x: number) => number, target: number, lo: number): 
   return (lo + hi) / 2
 }
 
+export interface RadialMember {
+  A_tip: number
+  A_root: number
+  mass: number
+  /** 回転軸まわりの慣性モーメント */
+  I: number
+  /** 伸び（ヤング率 E のとき） */
+  delta: number
+}
+
+/**
+ * 半径 r_in から r_out までの放射状の部材（スポーク・テザー）が、先に力 F を受け、自分の遠心力も受けるときの、
+ * 応力がどこでも許容応力 sa 以下になる最小の太さ（§4.6）。作れなければ undefined
+ */
+export function radialMember(
+  F: number,
+  r_in: number,
+  r_out: number,
+  rho: number,
+  sa: number,
+  omega: number,
+  taper: Taper,
+  k_tp: number,
+  E: number,
+): RadialMember | undefined {
+  const len = r_out - r_in
+  if (!(len > 0) || !(F >= 0) || !(sa > 0)) return undefined
+  const w2 = omega ** 2
+  const k = (rho * w2) / (2 * sa)
+  // 先の断面積に対する形 a(r)（応力が一定は解析解、ほかは決めた形）
+  const shape = (r: number) => (taper === 'const' ? Math.exp(k * (r_out ** 2 - r ** 2)) : taper === 'linear' ? 1 + (k_tp - 1) * ((r_out - r) / len) : 1)
+  const n = 2000
+  const h = len / n
+  // 先から根元へ：G(r) = ρω²∫_r^{r_out} a(s) s ds / a(r)（先の断面積に依らない応力の部分）
+  let acc = 0
+  let need = 0
+  const G: number[] = []
+  for (let i = 0; i <= n; i++) {
+    const r = r_out - i * h
+    if (i > 0) acc += 0.5 * (shape(r) * r + shape(r + h) * (r + h)) * h
+    const g = (rho * w2 * acc) / shape(r)
+    G.push(g)
+    if (taper !== 'const') {
+      if (g >= sa) return undefined
+      need = Math.max(need, F / (shape(r) * (sa - g)))
+    }
+  }
+  const A_tip = taper === 'const' ? F / sa : need
+  let mass = 0
+  let I = 0
+  let delta = 0
+  for (let i = 1; i <= n; i++) {
+    const r1 = r_out - (i - 1) * h
+    const r0 = r_out - i * h
+    mass += 0.5 * (shape(r0) + shape(r1)) * h
+    I += 0.5 * (shape(r0) * r0 ** 2 + shape(r1) * r1 ** 2) * h
+    const s0 = taper === 'const' ? sa : F / (A_tip * shape(r0)) + G[i]
+    const s1 = taper === 'const' ? sa : F / (A_tip * shape(r1)) + G[i - 1]
+    delta += (0.5 * (s0 + s1) * h) / E
+  }
+  return { A_tip, A_root: A_tip * shape(r_in), mass: rho * A_tip * mass, I: rho * A_tip * I, delta }
+}
+
 /** 慣性モーメントの部品（回転軸まわり I_z と、重心を通る横の軸まわり I_x） */
 interface Inertia {
   z: number
@@ -271,7 +383,8 @@ export function computeColony(p: ColonyInputs): ColonyResult {
   const r = computeAll(p)
   if (r.outputs || !(p.g_f > 0 && p.R_f > 0)) return r
   const omega = Math.sqrt(p.g_f / p.R_f)
-  const self = p.sigma_u > 0 && p.rho > 0 && p.SF > 0 && p.shape !== 'dumbbell' ? p.sigma_u / p.SF / p.rho : undefined
+  const fs = p.shape === 'dumbbell' ? 0 : Math.min(Math.max(p.f_s || 0, 0), 1)
+  const self = p.sigma_u > 0 && p.rho > 0 && p.SF > 0 && p.shape !== 'dumbbell' && fs < 1 ? p.sigma_u / p.SF / p.rho / (1 - fs) : undefined
   return {
     ...r,
     spin: {
@@ -332,6 +445,65 @@ function computeAll(p: ColonyInputs): ColonyResult {
   if (p.shape === 'dumbbell' && !p.shield_rot) return { warnings, errors: [{ code: 'dumbbell-shield', keys: ['shield_rot'] }] }
   const tsr = p.shield_rot ? t_sh : 0
 
+  // 段階2：スポークと引っ張り材
+  const fs = p.shape === 'dumbbell' ? 0 : p.f_s
+  if (!(fs >= 0 && fs <= 1)) return { warnings, errors: [{ code: 'range', keys: ['f_s'] }] }
+  if (!(p.f_t >= 0 && p.f_t <= 1)) return { warnings, errors: [{ code: 'range', keys: ['f_t'] }] }
+  const usesMembers = fs > 0 || p.shape === 'dumbbell' || (p.shape === 'torus' && p.f_t > 0) || (p.shape === 'cylinder' && p.cap !== 'hemi')
+  const sas = p.sigma_us / p.SF
+  if (usesMembers) {
+    for (const k of ['sigma_us', 'rho_s', 'E_s'] as const) if (!(p[k] > 0)) return { warnings, errors: [{ code: 'range', keys: [k] }] }
+    if (!(p.r_hub >= 0)) return { warnings, errors: [{ code: 'range', keys: ['r_hub'] }] }
+    if (p.taper === 'linear' && !(p.k_tp >= 1)) return { warnings, errors: [{ code: 'range', keys: ['k_tp'] }] }
+  }
+  if (fs > 0 && (p.shape === 'cylinder' || p.shape === 'sphere')) {
+    for (const k of ['N_th', 's_z'] as const) if (!(p[k] > 0)) return { warnings, errors: [{ code: 'range', keys: [k] }] }
+    if (!(p.E_h > 0)) return { warnings, errors: [{ code: 'range', keys: ['E_h'] }] }
+  }
+  const members: Member[] = []
+  /** 部材を一覧・質量・慣性モーメントに足す */
+  const addMember = (label: string, count: number, m: { A_tip: number; A_root: number; mass: number; I?: number }, length: number) => {
+    members.push({ label, count, A_tip: m.A_tip, A_root: m.A_root, mass: m.mass, length })
+    push(label, m.mass * count, true)
+    if (m.I) inertia.push({ z: m.I * count, x: 0 })
+  }
+  /** スポーク・テザー（作れなければエラーを足して undefined） */
+  const spoke = (F: number, r_in: number, r_out: number) => {
+    if (!(r_out > r_in)) {
+      errors.push({ code: 'hub-out', keys: ['r_hub'] })
+      return undefined
+    }
+    const m = radialMember(F, r_in, r_out, p.rho_s, sas, omega, p.taper, p.k_tp, p.E_s)
+    if (!m) errors.push({ code: 'spoke-limit', keys: ['taper', 'sigma_us', 'rho_s'], params: { v: omega * r_out } })
+    return m
+  }
+  /** スポークの列の外側のリング（スポークの間で外にふくらむ円弧。自分の遠心力を含む） */
+  const ring = (T: number, r: number, rows: number, label: string): boolean => {
+    const den = sas - p.rho_s * (omega * r) ** 2
+    if (den <= 0) {
+      errors.push({ code: 'ring-limit', keys: ['sigma_us', 'rho_s'], params: { v: omega * r } })
+      return false
+    }
+    const A = T / den
+    const m = p.rho_s * A * 2 * Math.PI * r
+    addMember(label, rows, { A_tip: A, A_root: A, mass: m, I: m * r ** 2 }, 2 * Math.PI * r)
+    return true
+  }
+  /** 管・モジュールの中の引っ張り材（自分の遠心力は無視する。§7）と、壁側のリング */
+  const tubeTies = (a: number, lengthAlong: number, label: string) => {
+    const rows = Math.max(1, Math.round(lengthAlong / p.s_t))
+    const st = lengthAlong / rows
+    const F = (p.f_t * Pw0 * 2 * Math.PI * a * st) / p.N_t
+    const A = F / sas
+    addMember(`${label}の中の引っ張り材`, p.N_t * rows, { A_tip: A, A_root: A, mass: p.rho_s * A * a }, a)
+    const T = (p.f_t * Pw0 * st * ((2 * Math.PI * a) / p.N_t)) / Math.SQRT2
+    const Ar = T / sas
+    addMember(`${label}の引っ張り材のリング`, rows, { A_tip: Ar, A_root: Ar, mass: p.rho_s * Ar * 2 * Math.PI * a }, 2 * Math.PI * a)
+    return st
+  }
+  /** 管・モジュールの壁の位置の気圧（引っ張り材に使う） */
+  let Pw0 = p.P_f
+
   const floors: Floor[] = [{ label: '基準の床', r: p.R_f, area: p.A_f, m: p.m_f }]
   /** 高さの表に足す、形ごとの位置 */
   const extraRows: { label: string; r: number }[] = []
@@ -376,7 +548,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
     errors.push({
       code: 'hull-limit',
       keys: ['sigma_u', 'rho', 'SF', 'R_f'],
-      params: { v: vHull, vmax: Math.sqrt(sa / p.rho), R: sa / p.rho / p.g_f / 1000 },
+      params: { v: vHull, vmax: Math.sqrt(sa / p.rho / (1 - fs)), R: sa / p.rho / (1 - fs) / p.g_f / 1000 },
     })
   const nonRotShield = (r_mid: number, area: number) => {
     A_shield = area
@@ -392,45 +564,103 @@ function computeAll(p: ColonyInputs): ColonyResult {
       const R_h = p.R_f + tsr
       const r_sh = p.R_f + tsr / 2
       vHull = omega * R_h
-      const den = sa - p.rho * vHull ** 2
+      const den = sa - (1 - fs) * p.rho * vHull ** 2
+      const denCap = sa - p.rho * vHull ** 2
       if (den <= 0) {
         tooThick()
         return { warnings, errors }
       }
+      // 端のふたはスポークで支えないので、自分の重さの遠心力をそのまま受ける
+      if (denCap <= 0) return { warnings, errors: [{ code: 'cap-limit', keys: ['sigma_u', 'rho', 'SF', 'R_f'], params: { v: vHull, vmax: Math.sqrt(sa / p.rho) } }] }
+      const Pc = P(R_h)
       // §4.4 外向きの荷重：気圧、床に載るもの（陸の帯の値で保守的に）、自転させる遮蔽
-      const p_ext = P(R_h) + p.m_f * w2 * p.R_f * (p.R_f / R_h) + (p.shield_rot ? sigma_sh * w2 * r_sh * (r_sh / R_h) : 0)
-      const t_theta = (p_ext * R_h) / den
-      const t_z = (P(R_h) * R_h) / 2 / sa
-      t_hull = Math.max(t_theta, t_z)
-      const t_cap = ((P(R_h) * R_h) / 2) / den
+      const p_ext = Pc + p.m_f * w2 * p.R_f * (p.R_f / R_h) + (p.shield_rot ? sigma_sh * w2 * r_sh * (r_sh / R_h) : 0)
+      // §4.7 端のふた：半球の殻、中心の軸、中心の軸と同心の引っ張り材
+      const hemi = p.cap === 'hemi'
+      const nTie = p.cap === 'ties' ? Math.max(1, Math.round(p.n_tie)) : 0
+      const s_c = hemi ? 0 : (R_h - p.r_hub) / (nTie + 1)
+      if (!hemi && !(s_c > 0)) return { warnings, errors: [{ code: 'hub-out', keys: ['r_hub'] }] }
+      // 殻が受けるふたの環の内側の半径（軸・引っ張り材が内側を受ける）
+      const r_e = hemi ? 0 : R_h - s_c / 2
+      const T_zcap = (Pc * (R_h ** 2 - r_e ** 2)) / (2 * R_h)
+      const t_cap = hemi ? (Pc * R_h) / 2 / denCap : (Pc * s_c) / Math.SQRT2 / denCap
+      // §4.5 スポークの列
+      let n_r = 0
+      let s_zr = L
+      if (fs > 0) {
+        n_r = Math.max(2, Math.round(L / p.s_z) + 1)
+        s_zr = L / (n_r - 1)
+      }
+      const t_theta = ((1 - fs) * p_ext * R_h) / den
+      t_hull = Math.max(t_theta, Math.max(T_zcap, (fs * p_ext * s_zr) / Math.SQRT2) / sa)
       const A_side = 2 * Math.PI * R_h * L
-      const A_cap = 4 * Math.PI * R_h ** 2
+      // ふたの面積：半球、または軸と外周の間の環が 90° の円弧でふくらむ形（弦に対する弧の長さ π/(2√2)）
+      const A_cap = hemi ? 4 * Math.PI * R_h ** 2 : 2 * (Math.PI / (2 * Math.SQRT2)) * Math.PI * (R_h ** 2 - p.r_hub ** 2)
       m_hull = p.rho * t_hull
       const M_side = m_hull * A_side
       const M_cap = p.rho * t_cap * A_cap
       push('外壁（側面）', M_side, true)
-      push('端のふた（半球）', M_cap, true)
-      inertia.push(cylShell(M_side, R_h, L), hemiShells(M_cap, R_h, L))
+      push(hemi ? '端のふた（半球）' : '端のふた（軸で支える平らに近い形）', M_cap, true)
+      inertia.push(cylShell(M_side, R_h, L), hemi ? hemiShells(M_cap, R_h, L) : diskPair(M_cap, R_h, L))
       R_hull = R_h
-      A_hull = A_side + A_cap
-      V_air = Math.PI * p.R_f ** 2 * L + (4 / 3) * Math.PI * p.R_f ** 3
+      A_hull = A_side + (hemi ? 4 : 2) * Math.PI * R_h ** 2
+      V_air = Math.PI * p.R_f ** 2 * L + (hemi ? (4 / 3) * Math.PI * p.R_f ** 3 : 0)
       const M_air = rho_air * V_air
-      inertia.push(airCylinder(rho_air, p.R_f, L))
+      inertia.push(airCylinder(rho_air, p.R_f, L, hemi))
       out.M_air = M_air
       if (p.shield_rot) {
         const As = 2 * Math.PI * r_sh * L
-        const Ac = 4 * Math.PI * r_sh ** 2
+        const Ac = (hemi ? 4 : 2) * Math.PI * r_sh ** 2
         A_shield = As + Ac
         push('遮蔽（自転させる）', sigma_sh * A_shield, true)
-        inertia.push(cylShell(sigma_sh * As, r_sh, L), hemiShells(sigma_sh * Ac, r_sh, L))
+        inertia.push(cylShell(sigma_sh * As, r_sh, L), hemi ? hemiShells(sigma_sh * Ac, r_sh, L) : diskPair(sigma_sh * Ac, r_sh, L))
         rOuter = R_h + t_hull
       } else {
         const r_mid = R_h + t_hull + p.g_sh + t_sh / 2
-        nonRotShield(r_mid, 2 * Math.PI * r_mid * L + 4 * Math.PI * r_mid ** 2)
+        nonRotShield(r_mid, 2 * Math.PI * r_mid * L + (hemi ? 4 : 2) * Math.PI * r_mid ** 2)
       }
       const M_fl = p.m_f * p.A_f
       inertia.push({ z: M_fl * p.R_f ** 2, x: M_fl * (p.R_f ** 2 / 2 + L ** 2 / 12) })
-      selfMax = sa / p.rho
+
+      // 中心の軸と同心の引っ張り材（材料はスポークと同じ。気圧は外壁の位置の値で保守的に）
+      if (!hemi) {
+        const F_ax = Pc * Math.PI * (p.r_hub + s_c / 2) ** 2
+        const A_ax = F_ax / sas
+        addMember('中心の軸', 1, { A_tip: A_ax, A_root: A_ax, mass: p.rho_s * A_ax * L }, L)
+        let sag = 0
+        for (let j = 1; j <= nTie; j++) {
+          const r_j = p.r_hub + j * s_c
+          // 両隣との中間の半径の間の環（幅 s_c）を受ける。1つの輪を N_θ 本（スポークがなければ12本）に分ける
+          const nPer = fs > 0 ? Math.round(p.N_th) : 12
+          const A_j = (2 * Math.PI * Pc * r_j * s_c) / sas / nPer
+          const m = p.rho_s * A_j * L
+          addMember(`同心の引っ張り材（半径 ${Math.round(r_j)} m）`, nPer, { A_tip: A_j, A_root: A_j, mass: m, I: m * r_j ** 2 }, L)
+          // 自分の遠心力によるたるみ：支点はスポークの列（なければ両端）
+          sag = Math.max(sag, (p.rho_s * w2 * r_j * (fs > 0 ? s_zr : L)) / (8 * sas))
+        }
+        if (nTie > 0) {
+          out.tie_sag = sag
+          if (sag > 0.05) warnings.push({ code: 'tie-sag', keys: ['n_tie', 's_z'], params: { k: sag * 100 } })
+        }
+      }
+
+      // スポークとリング（§4.5）
+      if (fs > 0) {
+        const w_r = fs * p_ext * s_zr
+        const s_th = (2 * Math.PI * R_h) / p.N_th
+        if (!ring((w_r * s_th) / Math.SQRT2, R_h, n_r, 'スポークの列のリング')) return { warnings, errors }
+        const F = w_r * s_th
+        const m = spoke(F, p.r_hub, R_h)
+        if (!m) return { warnings, errors }
+        addMember('スポーク', Math.round(p.N_th) * n_r, m, R_h - p.r_hub)
+        // 長さの調整量：殻の半径の伸び − スポークの伸び
+        const sigma_theta = ((1 - fs) * (p_ext * R_h + p.rho * t_hull * vHull ** 2)) / t_hull
+        out.dl_spoke = (R_h * sigma_theta) / p.E_h - m.delta
+        out.F_spoke = F
+        out.n_rows = n_r
+        out.s_zr = s_zr
+      }
+      selfMax = fs < 1 ? sa / p.rho / (1 - fs) : Infinity
       out.L = L
       out.t_cap = t_cap
       pHi = R_h
@@ -456,15 +686,18 @@ function computeAll(p: ColonyInputs): ColonyResult {
       // §4.9 輪の遠心力（管の壁以外）
       const sumMR = floors.reduce((s, f) => s + f.m * f.area * f.r, 0) + M_shr * R_c + M_air * R_c
       const Pw = P(R_c + p.a)
+      Pw0 = Pw
       vHull = omega * R_c
-      const den = sa - p.rho * vHull ** 2
+      const den = sa - (1 - fs) * p.rho * vHull ** 2
       if (den <= 0) {
         tooThick()
         return { warnings, errors }
       }
-      const t_phi = (Pw * p.a * (2 * R_c - p.a)) / (2 * (R_c - p.a)) / sa
-      const t_theta = ((Pw * p.a) / 2 + (w2 * sumMR) / (4 * Math.PI ** 2 * p.a)) / den
-      t_hull = Math.max(t_phi, t_theta)
+      // §4.9 断面の方向は管の中の引っ張り材が f_t を受ける。輪の方向はハブのスポークが輪の遠心力の f_s を受ける
+      if (p.f_t > 0) for (const k of ['N_t', 's_t'] as const) if (!(p[k] > 0)) return { warnings, errors: [{ code: 'range', keys: [k] }] }
+      const t_phi = ((1 - p.f_t) * Pw * p.a * (2 * R_c - p.a)) / (2 * (R_c - p.a)) / sa
+      const X = Math.max((Pw * p.a) / 2 + ((1 - fs) * w2 * sumMR) / (4 * Math.PI ** 2 * p.a), p.f_t > 0 ? (p.f_t * Pw * p.s_t) / Math.SQRT2 : 0)
+      t_hull = Math.max(t_phi, X / den)
       R_hull = p.a
       A_hull = 4 * Math.PI ** 2 * R_c * p.a
       m_hull = p.rho * t_hull
@@ -481,6 +714,18 @@ function computeAll(p: ColonyInputs): ColonyResult {
         const r_mid = p.a + t_hull + p.g_sh + t_sh / 2
         nonRotShield(R_c + r_mid, 4 * Math.PI ** 2 * R_c * r_mid)
       }
+      if (p.f_t > 0) tubeTies(p.a, 2 * Math.PI * R_c, '管')
+      // ハブのスポーク：輪の遠心力（壁を含むすべての回る質量）の f_s を N_hub 本で受ける
+      if (fs > 0) {
+        if (!(p.N_hub > 0)) return { warnings, errors: [{ code: 'range', keys: ['N_hub'] }] }
+        const sumAll = masses.filter((m) => m.rotating).reduce((s2, m) => s2 + m.mass, 0) * R_c + floors.reduce((s2, f) => s2 + f.m * f.area * f.r, 0) + M_air * R_c
+        const F = (fs * w2 * sumAll) / p.N_hub
+        const m = spoke(F, p.r_hub, R_c - p.a)
+        if (!m) return { warnings, errors }
+        addMember('ハブのスポーク', Math.round(p.N_hub), m, R_c - p.a - p.r_hub)
+        out.F_spoke = F
+        warnings.push({ code: 'torus-bending', level: 'info' })
+      }
       out.M_air = M_air
       out.R_c = R_c
       out.w = w
@@ -489,7 +734,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
       pLo = R_c - p.a
       pHi = R_c + p.a
       extraRows.push({ label: '管の内側の壁', r: R_c - p.a }, { label: '管の外側の壁', r: R_c + p.a })
-      selfMax = sa / p.rho
+      selfMax = fs < 1 ? sa / p.rho / (1 - fs) : Infinity
       break
     }
 
@@ -534,15 +779,22 @@ function computeAll(p: ColonyInputs): ColonyResult {
       const R_h = R_s + tsr
       const r_sh = R_s + tsr / 2
       vHull = omega * R_h
-      const den = sa - p.rho * vHull ** 2
+      const den = sa - (1 - fs) * p.rho * vHull ** 2
       if (den <= 0) {
         tooThick()
         return { warnings, errors }
       }
-      // §4.10 床の遠心力を、床のある範囲の殻が受ける等価な圧力
+      // §4.10 床の遠心力を、床のある範囲の殻が受ける等価な圧力。スポークはこの分の f_s を受ける（気圧の分は殻が受ける）
       const A_band = 4 * Math.PI * R_h * zMax
       const q_eq = (w2 * floors.reduce((s, f) => s + f.m * f.area * f.r, 0)) / A_band + (p.shield_rot ? sigma_sh * w2 * r_sh * (r_sh / R_h) : 0)
-      t_hull = ((P(R_h) * R_h) / 2 + q_eq * R_h) / den
+      let n_r = 0
+      let s_zr = 2 * zMax
+      if (fs > 0) {
+        n_r = Math.max(2, Math.round((2 * zMax) / p.s_z) + 1)
+        s_zr = (2 * zMax) / (n_r - 1)
+      }
+      const Ps = P(R_h)
+      t_hull = Math.max(((Ps * R_h) / 2 + (1 - fs) * q_eq * R_h) / den, ((Ps * R_h) / 2 + (fs * q_eq * s_zr) / Math.SQRT2) / sa)
       R_hull = R_h
       A_hull = 4 * Math.PI * R_h ** 2
       m_hull = p.rho * t_hull
@@ -561,11 +813,26 @@ function computeAll(p: ColonyInputs): ColonyResult {
         const r_mid = R_h + t_hull + p.g_sh + t_sh / 2
         nonRotShield(r_mid, 4 * Math.PI * r_mid ** 2)
       }
+      // スポークとリング：床のある範囲（軸方向に ±zMax）に列を並べる。長さは保守的に殻の半径まで
+      if (fs > 0) {
+        const w_r = fs * q_eq * s_zr
+        const s_th = (2 * Math.PI * R_h) / p.N_th
+        if (!ring((w_r * s_th) / Math.SQRT2, R_h, n_r, 'スポークの列のリング')) return { warnings, errors }
+        const F = w_r * s_th
+        const m = spoke(F, p.r_hub, R_h)
+        if (!m) return { warnings, errors }
+        addMember('スポーク', Math.round(p.N_th) * n_r, m, R_h - p.r_hub)
+        const sigma_theta = ((Ps * R_h) / 2 + (1 - fs) * (q_eq * R_h + p.rho * t_hull * vHull ** 2)) / t_hull
+        out.dl_spoke = (R_h * sigma_theta) / p.E_h - m.delta
+        out.F_spoke = F
+        out.n_rows = n_r
+        out.s_zr = s_zr
+      }
       out.M_air = M_air
       out.R_s = R_s
       airHi = R_s
       pHi = R_h
-      selfMax = sa / p.rho
+      selfMax = fs < 1 ? sa / p.rho / (1 - fs) : Infinity
       break
     }
 
@@ -579,8 +846,10 @@ function computeAll(p: ColonyInputs): ColonyResult {
       const L_m = p.A_f / (2 * p.w_m)
       if (!decks(a_i, d, () => 2 * L_m)) return { warnings, errors }
       const Pw = P(R_cm + p.a_m)
-      // §4.11 モジュールの壁（円周方向）と、両端の半球
-      t_hull = (Pw * p.a_m) / sa
+      Pw0 = Pw
+      if (p.f_t > 0) for (const k of ['N_t', 's_t'] as const) if (!(p[k] > 0)) return { warnings, errors: [{ code: 'range', keys: [k] }] }
+      // §4.11 モジュールの壁（円周方向は引っ張り材が f_t を受ける）と、両端の半球
+      t_hull = Math.max(((1 - p.f_t) * Pw * p.a_m) / sa, Math.max((Pw * p.a_m) / 2, p.f_t > 0 ? (p.f_t * Pw * p.s_t) / Math.SQRT2 : 0) / sa)
       const t_end = (Pw * p.a_m) / 2 / sa
       R_hull = p.a_m
       const A_side = 2 * 2 * Math.PI * p.a_m * L_m
@@ -595,9 +864,20 @@ function computeAll(p: ColonyInputs): ColonyResult {
       A_shield = 2 * (2 * Math.PI * r_m * L_m + 4 * Math.PI * r_m ** 2)
       const M_shr = sigma_sh * A_shield
       push('遮蔽（自転させる）', M_shr, true)
-      const M_mod = (M_wall + M_air + M_shr + floors.reduce((s, f) => s + f.m * f.area, 0)) / 2
-      out.F_tether = M_mod * w2 * R_cm
       inertia.push({ z: (M_wall + M_air + M_shr) * R_cm ** 2, x: 0 })
+      if (p.f_t > 0) {
+        tubeTies(p.a_m, 2 * L_m, 'モジュール')
+        for (const m of members) inertia.push({ z: m.mass * m.count * R_cm ** 2, x: 0 })
+      }
+      // テザー：モジュール1つ（テザーを除く）の遠心力を n_teth 本で受ける。ハブからモジュールの上の壁まで
+      const M_mod = (masses.reduce((s2, m) => s2 + m.mass, 0) + M_air + floors.reduce((s2, f) => s2 + f.m * f.area, 0)) / 2
+      out.F_tether = M_mod * w2 * R_cm
+      if (!(p.n_teth > 0)) return { warnings, errors: [{ code: 'range', keys: ['n_teth'] }] }
+      const F = out.F_tether / p.n_teth
+      const mt = spoke(F, p.r_hub, R_cm - p.a_m)
+      if (!mt) return { warnings, errors }
+      addMember('テザー', 2 * Math.round(p.n_teth), mt, R_cm - p.a_m - p.r_hub)
+      out.F_spoke = F
       out.M_air = M_air
       out.L_m = L_m
       out.g_end = (p.g_f * Math.hypot(p.R_f, L_m / 2)) / p.R_f
@@ -693,6 +973,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
       T_dew: air.p_H2O > 0 ? dewPoint(air.p_H2O) : undefined,
       P_axis: axisInside ? P(0) : undefined,
       floors,
+      members,
       A_total: floors.reduce((s, f) => s + f.area, 0),
       V_air: V_air!,
       M_air: out.M_air!,
@@ -700,8 +981,8 @@ function computeAll(p: ColonyInputs): ColonyResult {
       A_hull: A_hull!,
       t_hull: t_hull!,
       m_hull: m_hull!,
-      v_max: Math.sqrt(selfMax!),
-      R_max: selfMax! / p.g_f,
+      v_max: Number.isFinite(selfMax!) ? Math.sqrt(selfMax!) : undefined,
+      R_max: Number.isFinite(selfMax!) ? selfMax! / p.g_f : undefined,
       sigma_sh,
       t_sh,
       M_shield: sigma_sh * A_shield!,
@@ -733,10 +1014,15 @@ function hemiShells(M: number, R: number, L: number): Inertia {
   return { z: (2 / 3) * M * R ** 2, x: M * ((2 / 3) * R ** 2 - R ** 2 / 4 + (L / 2 + R / 2) ** 2) }
 }
 
-/** シリンダと両端の半球の中の空気（中身の詰まった円柱と半球） */
-function airCylinder(rho: number, R: number, L: number): Inertia {
+/** 両端の平らな円板（合計の質量 M）。軸方向に ±L/2 */
+function diskPair(M: number, R: number, L: number): Inertia {
+  return { z: 0.5 * M * R ** 2, x: M * (R ** 2 / 4 + (L / 2) ** 2) }
+}
+
+/** シリンダと両端の半球（hemi のとき）の中の空気（中身の詰まった円柱と半球） */
+function airCylinder(rho: number, R: number, L: number, hemi = true): Inertia {
   const Mc = rho * Math.PI * R ** 2 * L
-  const Mh = rho * (4 / 3) * Math.PI * R ** 3
+  const Mh = hemi ? rho * (4 / 3) * Math.PI * R ** 3 : 0
   const zc = (3 * R) / 8
   return {
     z: 0.5 * Mc * R ** 2 + 0.4 * Mh * R ** 2,

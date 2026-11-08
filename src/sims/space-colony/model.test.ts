@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LOCATIONS } from './data.ts'
-import { arealForDose, computeColony, doseAt, dropDrift, G0, molarMass, pressureAt, type ColonyInputs } from './model.ts'
+import { arealForDose, computeColony, doseAt, dropDrift, G0, molarMass, pressureAt, radialMember, type ColonyInputs } from './model.ts'
 
 /** 有効数字4桁で一致 */
 function expect4(actual: number | undefined, expected: number, rel = 5e-4) {
@@ -34,6 +34,23 @@ function base(over: Partial<ColonyInputs> = {}): ColonyInputs {
     SF: 2,
     m_f: 1000,
     m_deck: 500,
+    E_h: 71.7e9,
+    sigma_us: 685e6,
+    rho_s: 7850,
+    E_s: 205e9,
+    f_s: 0,
+    N_th: 12,
+    s_z: 50,
+    N_hub: 6,
+    n_teth: 4,
+    r_hub: 5,
+    taper: 'const',
+    k_tp: 1.2,
+    f_t: 0,
+    N_t: 8,
+    s_t: 10,
+    cap: 'hemi',
+    n_tie: 3,
     loc: 'free',
     shield_rot: false,
     shield_mat: 'regolith',
@@ -273,5 +290,114 @@ describe('球の重力の下限（1.3）', () => {
     const r = computeColony(base({ shape: 'sphere', A_f: 1e7 }))
     expect(r.errors[0].code).toBe('sphere-area')
     expect4(Number(r.errors[0].params!.A), 4 * Math.PI * 250 ** 2 * Math.sqrt(1 - 0.49))
+  })
+})
+
+describe('T4 スポークの一般式（段階2）', () => {
+  const w = Math.sqrt(G0 / 250)
+  const sa = 685e6 / 2
+  it('応力が一定', () => {
+    const m = radialMember(1e6, 0, 250, 7850, sa, w, 'const', 1, 205e9)!
+    expect4(m.A_tip, 2.92e-3, 1e-3)
+    expect4(m.A_root, 3.003e-3, 1e-3)
+    expect4(m.mass, 5839, 1e-3)
+    // どこでも許容応力なので、伸びは σ_a L / E
+    expect4(m.delta, (sa * 250) / 205e9)
+  })
+  it('太さが一定・直線', () => {
+    const n = radialMember(1e6, 0, 250, 7850, sa, w, 'none', 1, 205e9)!
+    expect4(n.A_tip, 3.004e-3, 1e-3)
+    expect4(n.mass, 5896, 1e-3)
+    const l = radialMember(1e6, 0, 250, 7850, sa, w, 'linear', 1.2, 205e9)!
+    expect4(l.A_tip, 2.92e-3, 1e-3)
+    expect4(l.A_root, 3.504e-3, 1e-3)
+    expect4(l.mass, 6303, 1e-3)
+  })
+  it('島3号の速さでは、応力が一定の根元と先の比 1.279', () => {
+    const wi = Math.sqrt(G0 / 3200)
+    const m = radialMember(1e6, 0, 3200, 7850, 500e6, wi, 'const', 1, 205e9)!
+    expect4(m.A_root / m.A_tip, 1.279, 1e-3)
+  })
+  it('速すぎると、太さが一定のスポークは作れない', () => {
+    const wf = Math.sqrt(G0 / 10_000)
+    expect(radialMember(1e6, 0, 10_000, 7850, sa, wf, 'none', 1, 205e9)).toBeUndefined()
+    expect(radialMember(1e6, 0, 10_000, 7850, sa, wf, 'const', 1, 205e9)).toBeDefined()
+  })
+})
+
+describe('T3 スポークの割合（段階2）', () => {
+  it('f_s = 0.5 で外壁は 56.0 mm', () => {
+    const o = computeColony(base({ f_s: 0.5 })).outputs!
+    expect4(o.t_hull * 1000, 56.0, 2e-3)
+    expect4(o.m_hull, 157.4, 2e-3)
+    expect(o.n_rows).toBe(8)
+    expect(o.members.map((m) => m.label)).toEqual(['スポークの列のリング', 'スポーク'])
+    expect(o.members[1].count).toBe(96)
+    // 1列の線荷重 × スポークの間隔
+    const p_ext = pressureAt(101_325, molarMass(0.2095), 295.15, Math.sqrt(G0 / 250), 250, 250) + 1000 * G0
+    expect4(o.F_spoke!, 0.5 * p_ext * (325 / 7) * ((2 * Math.PI * 250) / 12), 1e-3)
+    expect(o.dl_spoke).toBeDefined()
+  })
+  it('スポークが全部受けると、殻は軸方向の張力だけで決まり、作れる速さの上限がなくなる', () => {
+    const o = computeColony(base({ f_s: 1 })).outputs!
+    expect(o.v_max).toBeUndefined()
+    // 側面はスポークで作れるが、端のふたは支えないので作れない
+    const r = computeColony(base({ f_s: 1, R_f: 10_000, A_f: 1e8, cap: 'spine' }))
+    expect(r.errors.map((e) => e.code)).toEqual(['cap-limit'])
+  })
+  it('f_s = 0 は段階1と同じ', () => {
+    const o = computeColony(base()).outputs!
+    expect4(o.t_hull * 1000, 113.6, 1e-3)
+    expect(o.members).toEqual([])
+  })
+})
+
+describe('端のふたの支え方（段階2）', () => {
+  it('中心の軸：ふたが薄くなり、軸の太さを出す', () => {
+    const hemi = computeColony(base()).outputs!
+    const sp = computeColony(base({ cap: 'spine' })).outputs!
+    // ふたの張力 P s_c/√2（s_c = R − r_hub）と、半球の P R/2
+    expect(sp.t_cap!).toBeLessThan(hemi.t_cap! * 1.5)
+    const ax = sp.members.find((m) => m.label === '中心の軸')!
+    const Pc = pressureAt(101_325, molarMass(0.2095), 295.15, Math.sqrt(G0 / 250), 250, 250)
+    expect4(ax.A_tip, (Pc * Math.PI * (5 + 245 / 2) ** 2) / (685e6 / 2))
+    // 平らなふたは横の軸まわりの慣性モーメントが小さく、回転が安定する
+    expect(sp.I_ratio!).toBeGreaterThan(hemi.I_ratio!)
+  })
+  it('同心の引っ張り材：ふたはさらに薄く、たるみを出す', () => {
+    const sp = computeColony(base({ cap: 'spine' })).outputs!
+    const ti = computeColony(base({ cap: 'ties', n_tie: 3 })).outputs!
+    expect4(ti.t_cap! * 4, sp.t_cap!, 1e-6)
+    expect(ti.members.filter((m) => m.label.startsWith('同心')).length).toBe(3)
+    // 支点が両端（325 m）のとき、外側の輪（半径 189 m）のたるみ ρω²rs/(8σ_a)
+    expect4(ti.tie_sag!, (7850 * (G0 / 250) * (5 + 3 * 61.25) * 325) / (8 * 342.5e6), 1e-3)
+  })
+  it('たるみが 5% を超えると警告', () => {
+    const r = computeColony(base({ cap: 'ties', n_tie: 3, A_f: 2 * Math.PI * 250 * 3000 }))
+    expect(r.warnings.map((w) => w.code)).toContain('tie-sag')
+  })
+})
+
+describe('トーラス・ダンベルの部材（段階2）', () => {
+  const w = 2 * Math.sqrt(65 ** 2 - 50 ** 2)
+  const stan = { shape: 'torus' as const, R_f: 880, A_f: 2 * Math.PI * 880 * w, g_f: 880 * (2 * Math.PI / 60) ** 2 }
+  it('ハブのスポークが輪の遠心力を受けると、管の壁が薄くなる', () => {
+    // 床の荷重を大きくして、輪の方向で厚さが決まる場合（スタンフォードの初期値では断面の方向の気圧で決まる）
+    const t0 = computeColony(base({ ...stan, m_f: 10_000 })).outputs!
+    const t1 = computeColony(base({ ...stan, m_f: 10_000, f_s: 0.8 })).outputs!
+    expect(t1.t_hull).toBeLessThan(t0.t_hull)
+    expect(t1.members.map((m) => m.label)).toEqual(['ハブのスポーク'])
+    expect(t1.members[0].count).toBe(6)
+  })
+  it('管の中の引っ張り材は、断面の方向の張力を減らす', () => {
+    const t1 = computeColony(base({ ...stan, m_f: 0, f_t: 0.5 })).outputs!
+    expect(t1.members.map((m) => m.label)).toEqual(['管の中の引っ張り材', '管の引っ張り材のリング'])
+  })
+  it('ダンベル：テザーの太さと質量', () => {
+    const o = computeColony(base({ shape: 'dumbbell', R_f: 230, a_m: 20, shield_rot: true, sigma_sh: 9041, rho_sh: 2600 })).outputs!
+    const t = o.members.find((m) => m.label === 'テザー')!
+    expect(t.count).toBe(8)
+    expect4(o.F_spoke!, o.F_tether! / 4)
+    expect4(t.A_tip, o.F_spoke! / (685e6 / 2))
   })
 })
