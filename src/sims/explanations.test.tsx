@@ -11,6 +11,7 @@ const modules = {
   'power-thermal': () => import('./power-thermal/explanation.tsx'),
   'reactor-shield': () => import('./reactor-shield/explanation.tsx'),
   crater: () => import('./crater/explanation.tsx'),
+  'space-colony': () => import('./space-colony/explanation.tsx'),
 }
 
 describe('パラメータや計算の解説', () => {

@@ -75,4 +75,13 @@ const ICON_PATHS: Record<SimIconKind, ReactNode> = {
       <path d="M13.5 6.6 18 2.5M14.2 8.6l5-2.1M11.6 6.1l1.6-3.6" />
     </>
   ),
+  // 横から見た円筒のコロニーと、回転の向きの矢印
+  colony: (
+    <>
+      <ellipse cx="6" cy="12" rx="2.5" ry="6" />
+      <path d="M6 6h12M6 18h12M18 6a2.5 6 0 0 1 0 12" />
+      <path d="M10 9.5h6M10 14.5h6" />
+      <path d="M3 3.5a5 2 0 0 1 6 0M8.2 2.6l.8.9-1.1.4" />
+    </>
+  ),
 }

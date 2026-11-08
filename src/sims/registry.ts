@@ -44,6 +44,13 @@ export const simModules: readonly SimModuleMeta[] = [
     icon: 'crater',
     specFile: 'クレータ造成モジュール仕様書1(新規).md',
   },
+  {
+    id: 'space-colony',
+    name: 'スペースコロニー設計',
+    summary: '自転で人工重力を作るスペースコロニー（シリンダ・トーラス・球・ダンベル）の、回転、重力と気圧の分布、快適さ、外壁の厚さ、放射線遮蔽、質量を計算します。',
+    icon: 'colony',
+    specFile: 'スペースコロニー設計モジュール仕様書1(新規).md',
+  },
 ]
 
 export function findSimModule(id: string): SimModuleMeta | undefined {

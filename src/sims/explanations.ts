@@ -11,4 +11,5 @@ export const simExplanations: Readonly<Record<string, ComponentType>> = {
   'power-thermal': lazy(() => import('./power-thermal/explanation.tsx')),
   'reactor-shield': lazy(() => import('./reactor-shield/explanation.tsx')),
   crater: lazy(() => import('./crater/explanation.tsx')),
+  'space-colony': lazy(() => import('./space-colony/explanation.tsx')),
 }

@@ -11,7 +11,7 @@ describe('simModules', () => {
     for (const m of simModules) expect(m.id).toMatch(/^[a-z0-9-]+$/)
   })
 
-  it('仕様書の6モジュールが登録されている', () => {
+  it('仕様書の7モジュールが登録されている', () => {
     expect(simModules.map((m) => m.id)).toEqual([
       'solar-beaming',
       'laser-beaming',
@@ -19,6 +19,7 @@ describe('simModules', () => {
       'power-thermal',
       'reactor-shield',
       'crater',
+      'space-colony',
     ])
   })
 

@@ -14,7 +14,7 @@ export interface SimModuleMeta {
   specFile: string
 }
 
-export type SimIconKind = 'mirror' | 'laser' | 'shade' | 'power' | 'reactor' | 'crater'
+export type SimIconKind = 'mirror' | 'laser' | 'shade' | 'power' | 'reactor' | 'crater' | 'colony'
 
 // ---------------------------------------------------------------------------
 // 入力（WebApp仕様書 §7.1）
