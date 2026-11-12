@@ -60,3 +60,18 @@ describe('外壁を円形に保つ構造と、引っ張りだけに使う材料�
     expect(num(r, 'C_th')).toBeGreaterThan(0)
   })
 })
+
+describe('2重床（1.7）', () => {
+  it('2重床では「同心の引っ張り材」を選べず、トーラスはスポークの割合を隠す', () => {
+    const i = { ...defaultInputs(spaceColony), double_floor: true }
+    const ties = enumParam('cap').options.find((o) => o.value === 'ties')!
+    expect(ties.disabledWhen?.(i)).toBe(true)
+    expect(ties.disabledWhen?.(defaultInputs(spaceColony))).toBe(false)
+    const fs = spaceColony.inputs.find((p) => p.key === 'f_s')!
+    expect(fs.visibleWhen?.({ ...i, shape: 'torus' })).toBe(false)
+    const r = evaluate(spaceColony, i)
+    expect(r.errors).toEqual([])
+    expect(num(r, 'P_mot')).toBeGreaterThan(0)
+    expect(num(r, 't_fl')).toBeGreaterThan(0)
+  })
+})

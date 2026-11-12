@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LOCATIONS } from './data.ts'
-import { arealForDose, computeColony, doseAt, dropDrift, G0, molarMass, pressureAt, radialMember, stayCables, type ColonyInputs } from './model.ts'
+import { airViscosity, arealForDose, computeColony, doseAt, dropDrift, G0, gapShear, molarMass, pressureAt, radialMember, stayCables, type ColonyInputs } from './model.ts'
 
 /** 有効数字4桁で一致 */
 function expect4(actual: number | undefined, expected: number, rel = 5e-4) {
@@ -34,6 +34,10 @@ function base(over: Partial<ColonyInputs> = {}): ColonyInputs {
     SF: 2,
     m_f: 1000,
     m_deck: 500,
+    double_floor: false,
+    h_gap: 1,
+    m_enc: 10,
+    eta_m: 0.9,
     E_h: 71.7e9,
     sigma_us: 685e6,
     rho_s: 7850,
@@ -491,5 +495,82 @@ describe('T16 外壁を円形に保つ構造（1.6）', () => {
     const r = computeColony(base({ shape: 'sphere', A_f: 2e5, R_f: 250, f_s: 0.5, hoop_mode: 'stay', axial_mode: 'susp' }))
     expect(r.errors).toEqual([])
     expect(r.outputs!.members.map((m) => m.label)).toEqual(['円周の斜張橋型のケーブル（細かく並ぶ）', '軸の方向の吊り橋型のケーブル（細かく並ぶ）', '軸の方向のハンガー（細かく並ぶ）', 'スポーク'])
+  })
+})
+
+describe('T5 空気の摩擦（2重床）', () => {
+  it('隙間 1 m、床の速さで τ = 0.8171 Pa', () => {
+    const rho = (101_325 * molarMass(0.2095)) / (8.314462618 * 295.15)
+    const u = Math.sqrt(G0 * 250)
+    expect4(gapShear(u, 1, rho, airViscosity(295.15)), 0.8171, 1e-3)
+    // 摩擦係数 5.6×10⁻⁴
+    expect(gapShear(u, 1, rho, airViscosity(295.15)) / (0.5 * rho * u * u)).toBeCloseTo(5.6e-4, 5)
+  })
+  it('側面 20.65 MW ＋ 両端の円板 6.556 MW、半球の防風壁なら 19.04 MW', () => {
+    const disk = computeColony(base({ double_floor: true, cap: 'spine' })).outputs!
+    expect4(disk.P_drag!, 20.65e6 + 6.556e6, 1e-3)
+    expect4(disk.P_mot!, disk.P_drag! / 0.9)
+    expect4(disk.tau_gap!, 0.8171, 1e-3)
+    const hemi = computeColony(base({ double_floor: true })).outputs!
+    expect4(hemi.P_drag!, 20.65e6 + 19.04e6, 1e-3)
+    // 1重床では出さない
+    expect(computeColony(base()).outputs!.P_drag).toBeUndefined()
+  })
+})
+
+describe('T17 2重床（1.7）', () => {
+  it('半径 250 m：与圧隔壁 101.1 mm、床構造 10.02 mm（質量はほとんど変わらない）', () => {
+    const r = computeColony(base({ double_floor: true }))
+    expect(r.errors).toEqual([])
+    const o = r.outputs!
+    expect4(o.t_hull * 1000, 101.1, 1e-3)
+    expect4(o.t_fl! * 1000, 10.02, 1e-3)
+    expect(o.R_b).toBe(251)
+    expect(o.R_hull).toBe(251)
+    const labels = o.masses.map((m) => m.label)
+    expect(labels).toContain('与圧隔壁（側面）')
+    expect(labels).toContain('防風壁')
+    expect(o.masses.find((m) => m.label === '与圧隔壁（側面）')!.rotating).toBe(false)
+    expect(o.masses.find((m) => m.label === '床構造')!.rotating).toBe(true)
+    expect(o.heights.map((h) => h.label)).toContain('与圧隔壁')
+  })
+  it('半径 8 km（上限の近く）：1重床 28.64 m に対して、与圧隔壁 3.224 m ＋ 床構造 2.527 m', () => {
+    const big = { R_f: 8000, A_f: 2 * Math.PI * 8000 * 325 }
+    expect4(computeColony(base(big)).outputs!.t_hull, 28.64, 1e-3)
+    const o = computeColony(base({ ...big, double_floor: true })).outputs!
+    expect4(o.t_hull, 3.224, 1e-3)
+    expect4(o.t_fl!, 2.527, 1e-3)
+    // 床構造は回るので、作れる速さの上限は変わらない
+    expect4(o.v_max!, Math.sqrt(503e6 / 2 / 2810))
+  })
+  it('同心の引っ張り材は選べない', () => {
+    expect(computeColony(base({ double_floor: true, cap: 'ties' })).errors.map((e) => e.code)).toEqual(['double-ties'])
+    // 中心の軸は止まっている
+    const o = computeColony(base({ double_floor: true, cap: 'spine' })).outputs!
+    expect(o.masses.find((m) => m.label === '中心の軸（止まっている）')!.rotating).toBe(false)
+  })
+  it('トーラス：スポークと引っ張り材を 0 にして情報を出し、床構造の輪で受ける', () => {
+    const r = computeColony(base({ shape: 'torus', A_f: 2 * Math.PI * 250 * 40, R_f: 250, a: 30, double_floor: true, f_s: 0.5 }))
+    expect(r.errors).toEqual([])
+    expect(r.warnings.map((w) => w.code)).toContain('torus-double')
+    const o = r.outputs!
+    expect(o.members).toEqual([])
+    expect(o.t_fl).toBeGreaterThan(0)
+    expect(o.P_drag).toBeGreaterThan(0)
+    expect(o.masses.map((m) => m.label)).toEqual(expect.arrayContaining(['与圧隔壁（外側の管）', '床構造', '防風屋根']))
+  })
+  it('球：与圧隔壁は P R_b /(2σa)、床構造と防風壁、スポークも使える', () => {
+    const r = computeColony(base({ shape: 'sphere', A_f: 2e5, R_f: 250, double_floor: true, f_s: 0.5, hoop_mode: 'stay' }))
+    expect(r.errors).toEqual([])
+    const o = r.outputs!
+    const Pb = pressureAt(101_325, molarMass(0.2095), 295.15, Math.sqrt(G0 / 250), 251, 250)
+    expect4(o.t_hull, (Pb * 251) / 2 / (503e6 / 2))
+    expect(o.masses.map((m) => m.label)).toEqual(expect.arrayContaining(['与圧隔壁（球）', '床構造（床のある帯）', '防風壁']))
+    // 床構造の円周の張力は気圧を含まないので、斜張橋型の圧縮と比べる張力が小さい
+    expect(o.T_th!).toBeLessThan(computeColony(base({ shape: 'sphere', A_f: 2e5, R_f: 250, f_s: 0.5, hoop_mode: 'stay' })).outputs!.T_th!)
+  })
+  it('置き場所 B は床と床構造の間に置き、与圧隔壁はその外に隙間をあける', () => {
+    const o = computeColony(base({ double_floor: true, f_s: 0.5, hoop_mode: 'stay', place: 'B', depth_by_m: true, d_th: 20 })).outputs!
+    expect4(o.R_b!, 250 + 20 + 1)
   })
 })

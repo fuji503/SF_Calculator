@@ -1,7 +1,7 @@
 import type { Message } from '../types.ts'
 import { LOCATIONS, type DoseTable, type Shape, type ShieldMat, type SphereFloor } from './data.ts'
 
-/** スペースコロニー設計の計算（仕様書1(新規) §4。段階1：§4.1〜4.4、4.9〜4.13、4.18。段階2：§4.5〜4.7（スポーク、リング、テザー、引っ張り材、端のふたの支え、外壁を円形に保つ構造）） */
+/** スペースコロニー設計の計算（仕様書1(新規) §4。段階1：§4.1〜4.4、4.9〜4.13、4.18。段階2：§4.5〜4.8、4.16（スポーク、リング、テザー、引っ張り材、端のふたの支え、外壁を円形に保つ構造、2重床と空気の摩擦）） */
 
 export const G0 = 9.80665
 const R_GAS = 8.314462618
@@ -78,6 +78,14 @@ export interface ColonyInputs {
   n_tie: number
   m_f: number
   m_deck: number
+  /** 2重床（§4.8）：与圧隔壁は止め、床構造と防風壁・防風屋根だけ回す（ダンベルでは使わない） */
+  double_floor: boolean
+  /** 床構造と与圧隔壁の隙間 */
+  h_gap: number
+  /** 防風壁・防風屋根の面密度 */
+  m_enc: number
+  /** 回転を保つモーターの効率 */
+  eta_m: number
   loc: string
   shield_rot: boolean
   shield_mat: ShieldMat | 'custom'
@@ -187,6 +195,13 @@ export interface ColonyOutputs {
   t_hull: number
   m_hull: number
   t_cap?: number
+  /** 2重床：床構造の厚さ（トーラスは床の幅にならした厚さ）と、与圧隔壁の半径（シリンダ・球）。2重床では t_hull・R_hull は与圧隔壁 */
+  t_fl?: number
+  R_b?: number
+  /** 2重床：隙間の摩擦応力（基準の床の速さ）、空気の摩擦の電力、モーターの電力 */
+  tau_gap?: number
+  P_drag?: number
+  P_mot?: number
   /** スポーク・テザー・引っ張り材・リング・中心の軸 */
   members: Member[]
   /** スポークの列の数と実際の間隔（シリンダ・球） */
@@ -423,6 +438,37 @@ export function stayCables(q: number, l: number, d: number, R: number, sa: numbe
   return { V: 2 * V, C }
 }
 
+/** 空気の粘性係数 [Pa·s]（サザーランドの式） */
+export function airViscosity(T: number): number {
+  return (1.716e-5 * (T / 273.15) ** 1.5 * (273.15 + 110.4)) / (T + 110.4)
+}
+
+/**
+ * 2重床の隙間の摩擦応力（§4.16）：回る面（速さ u）と止まっている面の間の隙間 h の空気。
+ * 乱流は隙間の両側の境界層の対数則 (u/2)/u_τ = ln(u_τ (h/2)/ν)/0.41 + 5.0 を解いて ρu_τ²。層流の μu/h と比べて大きい方
+ */
+export function gapShear(u: number, h: number, rho: number, mu: number): number {
+  if (!(u > 0)) return 0
+  const nu = mu / rho
+  let lo = 1e-12
+  let hi = u
+  for (let i = 0; i < 200; i++) {
+    const ut = (lo + hi) / 2
+    if (u / 2 / ut > Math.log((ut * h) / 2 / nu) / 0.41 + 5.0) lo = ut
+    else hi = ut
+  }
+  const ut = (lo + hi) / 2
+  return Math.max(rho * ut * ut, (mu * u) / h)
+}
+
+/** f を 0〜X で数値積分する（中点則） */
+function integrate(f: (x: number) => number, X: number, n = 1000): number {
+  const h = X / n
+  let sum = 0
+  for (let i = 0; i < n; i++) sum += f((i + 0.5) * h)
+  return sum * h
+}
+
 /** 慣性モーメントの部品（回転軸まわり I_z と、重心を通る横の軸まわり I_x） */
 interface Inertia {
   z: number
@@ -458,6 +504,20 @@ function computeAll(p: ColonyInputs): ColonyResult {
     if (!(Number(p[k]) > 0)) errors.push({ code: 'range', keys: [k] })
   }
   if (errors.length) return { warnings, errors }
+  // §4.8 2重床（ダンベルでは使わない）。トーラスはスポークと管の中の引っ張り材が止まっている管を横切るので使えない
+  const dbl = p.double_floor && p.shape !== 'dumbbell'
+  if (dbl) {
+    if (!(p.h_gap > 0)) return { warnings, errors: [{ code: 'range', keys: ['h_gap'] }] }
+    if (!(p.m_enc >= 0)) return { warnings, errors: [{ code: 'range', keys: ['m_enc'] }] }
+    if (!(p.eta_m > 0 && p.eta_m <= 1)) return { warnings, errors: [{ code: 'range', keys: ['eta_m'] }] }
+    if (p.shape === 'cylinder' && p.cap === 'ties') return { warnings, errors: [{ code: 'double-ties', keys: ['cap', 'double_floor'] }] }
+    if (p.shape === 'torus' && (p.f_s > 0 || p.f_t > 0)) {
+      warnings.push({ code: 'torus-double', level: 'info', keys: ['double_floor'] })
+      p = { ...p, f_s: 0, f_t: 0 }
+    }
+  }
+  /** 2重床の床構造の半径（高さの表に使う） */
+  let rFl: number | undefined
 
   // §4.1 回転
   const omega = Math.sqrt(p.g_f / p.R_f)
@@ -476,6 +536,14 @@ function computeAll(p: ColonyInputs): ColonyResult {
   if (x_O2 > F_O2_FIRE) warnings.push({ code: 'o2-fire', keys: ['p_O2', 'f_O2', 'P_f'], params: { f: x_O2 * 100 } })
   const P = (r: number) => pressureAt(p.P_f, M, p.T_in, omega, r, p.R_f)
   const rho_air = (p.P_f * M) / (R_GAS * p.T_in)
+  // §4.16 空気の摩擦（2重床）：半径 r の面 dA の電力 τ(u)·u·dA（u = ωr）
+  const mu_air = airViscosity(p.T_in)
+  const dragAt = (r: number, dA: number) => gapShear(omega * r, p.h_gap, rho_air, mu_air) * omega * r * dA
+  const setDrag = (P_drag: number) => {
+    out.P_drag = P_drag
+    out.P_mot = P_drag / p.eta_m
+    out.tau_gap = gapShear(v, p.h_gap, rho_air, mu_air)
+  }
   const sa = p.sigma_u / p.SF
 
   // §4.12 遮蔽の面密度（形に依らない）
@@ -546,10 +614,10 @@ function computeAll(p: ColonyInputs): ColonyResult {
   }
   const members: Member[] = []
   /** 部材を一覧・質量・慣性モーメントに足す */
-  const addMember = (label: string, count: number, m: { A_tip: number; A_root: number; mass: number; I?: number }, length: number) => {
+  const addMember = (label: string, count: number, m: { A_tip: number; A_root: number; mass: number; I?: number }, length: number, rotating = true) => {
     members.push({ label, count, A_tip: m.A_tip, A_root: m.A_root, mass: m.mass, length })
-    push(label, m.mass * count, true)
-    if (m.I) inertia.push({ z: m.I * count, x: 0 })
+    push(label, m.mass * count, rotating)
+    if (rotating && m.I) inertia.push({ z: m.I * count, x: 0 })
   }
   /** スポーク・テザー（作れなければエラーを足して undefined） */
   const spoke = (F: number, r_in: number, r_out: number) => {
@@ -767,8 +835,10 @@ function computeAll(p: ColonyInputs): ColonyResult {
       if (lift === undefined) return { warnings, errors }
       // 床の下の空間（床を持ち上げた分）にも空気が入る
       const R_air = p.R_f + lift
+      // 回る殻（1重床は外壁、2重床は床構造）と、2重床の与圧隔壁（止まっている）
       const R_h = R_air + tsr
       const r_sh = R_h - tsr / 2
+      const R_b = dbl ? R_h + p.h_gap : R_h
       vHull = omega * R_h
       const den = sa - (1 - fs) * p.rho * vHull ** 2
       const denCap = sa - p.rho * vHull ** 2
@@ -776,38 +846,60 @@ function computeAll(p: ColonyInputs): ColonyResult {
         tooThick()
         return { warnings, errors }
       }
-      // 端のふたはスポークで支えないので、自分の重さの遠心力をそのまま受ける
-      if (denCap <= 0) return { warnings, errors: [{ code: 'cap-limit', keys: ['sigma_u', 'rho', 'SF', 'R_f'], params: { v: vHull, vmax: Math.sqrt(sa / p.rho) } }] }
-      const Pc = P(R_h)
-      // §4.4 外向きの荷重：気圧、床に載るもの（陸の帯の値で保守的に）、自転させる遮蔽
-      const p_ext = Pc + p.m_f * w2 * p.R_f * (p.R_f / R_h) + (p.shield_rot ? sigma_sh * w2 * r_sh * (r_sh / R_h) : 0)
+      // 端のふたはスポークで支えないので、自分の重さの遠心力をそのまま受ける（2重床では止まっている）
+      if (!dbl && denCap <= 0) return { warnings, errors: [{ code: 'cap-limit', keys: ['sigma_u', 'rho', 'SF', 'R_f'], params: { v: vHull, vmax: Math.sqrt(sa / p.rho) } }] }
+      const Pc = P(R_b)
+      // §4.4 外向きの荷重：気圧（2重床の床構造は受けない）、床に載るもの（陸の帯の値で保守的に）、自転させる遮蔽
+      const p_ext = (dbl ? 0 : Pc) + p.m_f * w2 * p.R_f * (p.R_f / R_h) + (p.shield_rot ? sigma_sh * w2 * r_sh * (r_sh / R_h) : 0)
       // §4.7 端のふた：半球の殻、中心の軸、中心の軸と同心の引っ張り材
       const hemi = p.cap === 'hemi'
       const nTie = p.cap === 'ties' ? Math.max(1, Math.round(p.n_tie)) : 0
-      const s_c = hemi ? 0 : (R_h - p.r_hub) / (nTie + 1)
+      const s_c = hemi ? 0 : (R_b - p.r_hub) / (nTie + 1)
       if (!hemi && !(s_c > 0)) return { warnings, errors: [{ code: 'hub-out', keys: ['r_hub'] }] }
       // 殻が受けるふたの環の内側の半径（軸・引っ張り材が内側を受ける）
-      const r_e = hemi ? 0 : R_h - s_c / 2
-      const T_zcap = (Pc * (R_h ** 2 - r_e ** 2)) / (2 * R_h)
-      const t_cap = hemi ? (Pc * R_h) / 2 / denCap : (Pc * s_c) / Math.SQRT2 / denCap
+      const r_e = hemi ? 0 : R_b - s_c / 2
+      const T_zb = (Pc * (R_b ** 2 - r_e ** 2)) / (2 * R_b)
+      // 回る殻の軸方向の気圧の張力（2重床の床構造にはない）
+      const T_zcap = dbl ? 0 : T_zb
+      // 端のふた（2重床では止まっている与圧隔壁の一部なので、自分の重さの遠心力を受けない）
+      const denC = dbl ? sa : denCap
+      const t_cap = hemi ? (Pc * R_b) / 2 / denC : (Pc * s_c) / Math.SQRT2 / denC
       const cs = fs > 0 ? circular(fs * p_ext * s_zr, fs * p_ext, R_h, s_zr, n_r, (1 - fs) * p_ext * R_h * s_zr, T_zcap, Infinity) : undefined
       if (fs > 0 && !cs) return { warnings, errors }
       const t_theta = ((1 - fs) * p_ext * R_h) / den
       // 軸の方向：外壁がふくらむなら列の間でふくらむ張力、円形を保つ構造なら斜張橋型の圧縮のうち張力を超える分
       const N_ax = axM === 'membrane' ? Math.max(T_zcap, (fs * p_ext * s_zr) / Math.SQRT2) : Math.max(T_zcap, (cs?.C_z ?? 0) - T_zcap)
-      t_hull = Math.max(t_theta, N_ax / sa)
+      const t_rot = Math.max(t_theta, N_ax / sa)
       const A_side = 2 * Math.PI * R_h * L
       // ふたの面積：半球、または軸と外周の間の環が 90° の円弧でふくらむ形（弦に対する弧の長さ π/(2√2)）
-      const A_cap = hemi ? 4 * Math.PI * R_h ** 2 : 2 * (Math.PI / (2 * Math.SQRT2)) * Math.PI * (R_h ** 2 - p.r_hub ** 2)
-      m_hull = p.rho * t_hull
-      const M_side = m_hull * A_side
+      const A_cap = hemi ? 4 * Math.PI * R_b ** 2 : 2 * (Math.PI / (2 * Math.SQRT2)) * Math.PI * (R_b ** 2 - p.r_hub ** 2)
+      const M_side = p.rho * t_rot * A_side
       const M_cap = p.rho * t_cap * A_cap
-      push('外壁（側面）', M_side, true)
-      push(hemi ? '端のふた（半球）' : '端のふた（軸で支える平らに近い形）', M_cap, true)
-      inertia.push(cylShell(M_side, R_h, L), hemi ? hemiShells(M_cap, R_h, L) : diskPair(M_cap, R_h, L))
-      R_hull = R_h
-      A_hull = A_side + (hemi ? 4 : 2) * Math.PI * R_h ** 2
-      V_air = Math.PI * R_air ** 2 * L + (hemi ? (4 / 3) * Math.PI * R_air ** 3 : 0)
+      const capName = hemi ? '（半球）' : '（軸で支える平らに近い形）'
+      push(dbl ? '床構造' : '外壁（側面）', M_side, true)
+      inertia.push(cylShell(M_side, R_h, L))
+      if (dbl) {
+        // 与圧隔壁（止まっている）：気圧だけを受ける
+        t_hull = Math.max(Pc * R_b, T_zb) / sa
+        push('与圧隔壁（側面）', p.rho * t_hull * 2 * Math.PI * R_b * L, false)
+        push(`与圧隔壁の端のふた${capName}`, M_cap, false)
+        // 防風壁：与圧隔壁の端のふたの形に沿わせる（半球、または平らな円板）
+        const M_wind = p.m_enc * (hemi ? 4 : 2) * Math.PI * R_h ** 2
+        push('防風壁', M_wind, true)
+        inertia.push(hemi ? hemiShells(M_wind, R_h, L) : diskPair(M_wind, R_h, L))
+        out.t_fl = t_rot
+        out.R_b = R_b
+        rFl = R_h
+      } else {
+        t_hull = t_rot
+        push(`端のふた${capName}`, M_cap, true)
+        inertia.push(hemi ? hemiShells(M_cap, R_h, L) : diskPair(M_cap, R_h, L))
+      }
+      m_hull = p.rho * t_hull
+      R_hull = R_b
+      A_hull = 2 * Math.PI * R_b * L + (hemi ? 4 : 2) * Math.PI * R_b ** 2
+      // 2重床では隙間の空気も数える
+      V_air = Math.PI * R_air ** 2 * L + (hemi ? (4 / 3) * Math.PI * R_air ** 3 : 0) + (dbl ? A_hull * p.h_gap : 0)
       const M_air = rho_air * V_air
       inertia.push(airCylinder(rho_air, R_air, L, hemi))
       out.M_air = M_air
@@ -817,19 +909,19 @@ function computeAll(p: ColonyInputs): ColonyResult {
         A_shield = As + Ac
         push('遮蔽（自転させる）', sigma_sh * A_shield, true)
         inertia.push(cylShell(sigma_sh * As, r_sh, L), hemi ? hemiShells(sigma_sh * Ac, r_sh, L) : diskPair(sigma_sh * Ac, r_sh, L))
-        rOuter = R_h + t_hull
+        rOuter = R_b + t_hull
       } else {
-        const r_mid = R_h + t_hull + p.g_sh + t_sh / 2
+        const r_mid = R_b + t_hull + p.g_sh + t_sh / 2
         nonRotShield(r_mid, 2 * Math.PI * r_mid * L + (hemi ? 4 : 2) * Math.PI * r_mid ** 2)
       }
       const M_fl = p.m_f * p.A_f
       inertia.push({ z: M_fl * p.R_f ** 2, x: M_fl * (p.R_f ** 2 / 2 + L ** 2 / 12) })
 
-      // 中心の軸と同心の引っ張り材（材料はスポークと同じ。気圧は外壁の位置の値で保守的に）
+      // 中心の軸と同心の引っ張り材（材料はスポークと同じ。気圧は外壁の位置の値で保守的に）。2重床の中心の軸は止まっている
       if (!hemi) {
         const F_ax = Pc * Math.PI * (p.r_hub + s_c / 2) ** 2
         const A_ax = F_ax / sas
-        addMember('中心の軸', 1, { A_tip: A_ax, A_root: A_ax, mass: p.rho_s * A_ax * L }, L)
+        addMember(dbl ? '中心の軸（止まっている）' : '中心の軸', 1, { A_tip: A_ax, A_root: A_ax, mass: p.rho_s * A_ax * L }, L, !dbl)
         let sag = 0
         for (let j = 1; j <= nTie; j++) {
           const r_j = p.r_hub + j * s_c
@@ -855,7 +947,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
         if (!m) return { warnings, errors }
         addMember('スポーク', Math.round(p.N_th) * n_r, m, cs.r_node - p.r_hub)
         // 長さの調整量：殻の半径の伸び − スポークの伸び
-        const sigma_theta = ((1 - fs) * (p_ext * R_h + p.rho * t_hull * vHull ** 2)) / t_hull
+        const sigma_theta = ((1 - fs) * (p_ext * R_h + p.rho * t_rot * vHull ** 2)) / t_rot
         out.dl_spoke = (R_h * sigma_theta) / p.E_h - m.delta
         out.F_spoke = F
         out.n_rows = n_r
@@ -863,16 +955,25 @@ function computeAll(p: ColonyInputs): ColonyResult {
       }
       selfMax = fs < 1 ? sa / p.rho / (1 - fs) : Infinity
       out.L = L
-      out.LD = (L + (hemi ? 2 * R_h : 0)) / (2 * R_h)
+      out.LD = (L + (hemi ? 2 * R_b : 0)) / (2 * R_b)
       out.t_cap = t_cap
       if (lift > 0) out.lift = lift
       airHi = R_air
-      pHi = R_h
+      pHi = R_b
+      if (dbl) {
+        // §4.16 空気の摩擦：床構造の側面と、防風壁（半球または円板）
+        const ends = hemi
+          ? 2 * integrate((th) => dragAt(R_h * Math.sin(th), 2 * Math.PI * R_h * Math.sin(th) * R_h), Math.PI / 2)
+          : 2 * integrate((r) => dragAt(r, 2 * Math.PI * r), R_h)
+        setDrag(dragAt(R_h, A_side) + ends)
+      }
       break
     }
 
     case 'torus': {
-      const a_i = p.a - tsr
+      // 2重床では、回る内側の管（床構造と防風屋根）が、止まっている外側の管（与圧隔壁）の内側に隙間をあけて入る
+      const a_in = dbl ? p.a - p.h_gap : p.a
+      const a_i = a_in - tsr
       const w = p.A_f / (2 * Math.PI * p.R_f)
       if (!(a_i > 0)) return { warnings, errors: [{ code: 'tube-shield', keys: ['a', 'sigma_sh', 'rho_sh'], params: { t: tsr } }] }
       if (w >= 2 * a_i) {
@@ -883,31 +984,57 @@ function computeAll(p: ColonyInputs): ColonyResult {
       const R_c = p.R_f - d
       if (R_c - p.a <= 0) return { warnings, errors: [{ code: 'torus-axis', keys: ['a', 'R_f'], params: { Rc: R_c, a: p.a, R: p.a + d } }] }
       if (!decks(a_i, d, (r) => 2 * Math.PI * r)) return { warnings, errors }
-      V_air = 2 * Math.PI ** 2 * R_c * a_i ** 2
+      V_air = 2 * Math.PI ** 2 * R_c * a_i ** 2 + (dbl ? 4 * Math.PI ** 2 * R_c * p.a * p.h_gap : 0)
       const M_air = rho_air * V_air
-      const r_m = p.a - tsr / 2
+      const r_m = a_in - tsr / 2
       const M_shr = p.shield_rot ? sigma_sh * 4 * Math.PI ** 2 * R_c * r_m : 0
+      // 2重床の防風屋根（内側の管の面）
+      const M_roof = dbl ? p.m_enc * 4 * Math.PI ** 2 * R_c * a_in : 0
       // §4.9 輪の遠心力（管の壁以外）
-      const sumMR = floors.reduce((s, f) => s + f.m * f.area * f.r, 0) + M_shr * R_c + M_air * R_c
+      const sumMR = floors.reduce((s, f) => s + f.m * f.area * f.r, 0) + (M_shr + M_air + M_roof) * R_c
       const Pw = P(R_c + p.a)
       Pw0 = Pw
-      vHull = omega * R_c
-      const den = sa - (1 - fs) * p.rho * vHull ** 2
-      if (den <= 0) {
-        tooThick()
-        return { warnings, errors }
-      }
-      // §4.9 断面の方向は管の中の引っ張り材が f_t を受ける。輪の方向はハブのスポークが輪の遠心力の f_s を受ける
-      if (p.f_t > 0) for (const k of ['N_t', 's_t'] as const) if (!(p[k] > 0)) return { warnings, errors: [{ code: 'range', keys: [k] }] }
-      const t_phi = ((1 - p.f_t) * Pw * p.a * (2 * R_c - p.a)) / (2 * (R_c - p.a)) / sa
-      const X = Math.max((Pw * p.a) / 2 + ((1 - fs) * w2 * sumMR) / (4 * Math.PI ** 2 * p.a), p.f_t > 0 ? (p.f_t * Pw * p.s_t) / Math.SQRT2 : 0)
-      t_hull = Math.max(t_phi, X / den)
       R_hull = p.a
       A_hull = 4 * Math.PI ** 2 * R_c * p.a
+      if (dbl) {
+        // 与圧隔壁（外側の管、止まっている）は気圧だけ、床構造（回る輪）は輪の遠心力を受ける（§4.8、§4.9）
+        t_hull = Math.max((Pw * p.a * (2 * R_c - p.a)) / (2 * (R_c - p.a)), (Pw * p.a) / 2) / sa
+        vHull = omega * (R_c + a_in)
+        const denF = sa - p.rho * vHull ** 2
+        if (denF <= 0) {
+          tooThick()
+          return { warnings, errors }
+        }
+        const A_fl = (w2 * sumMR) / (2 * Math.PI * denF)
+        out.t_fl = A_fl / w
+        const M_fl = p.rho * A_fl * 2 * Math.PI * p.R_f
+        push('与圧隔壁（外側の管）', p.rho * t_hull * A_hull, false)
+        push('床構造', M_fl, true)
+        push('防風屋根', M_roof, true)
+        inertia.push({ z: M_fl * p.R_f ** 2, x: 0 }, { z: M_roof * (R_c ** 2 + 1.5 * a_in ** 2), x: 0 })
+        setDrag(
+          integrate((ph) => {
+            const r = R_c + a_in * Math.cos(ph)
+            return dragAt(r, 2 * Math.PI * r * a_in)
+          }, 2 * Math.PI),
+        )
+      } else {
+        vHull = omega * R_c
+        const den = sa - (1 - fs) * p.rho * vHull ** 2
+        if (den <= 0) {
+          tooThick()
+          return { warnings, errors }
+        }
+        // §4.9 断面の方向は管の中の引っ張り材が f_t を受ける。輪の方向はハブのスポークが輪の遠心力の f_s を受ける
+        if (p.f_t > 0) for (const k of ['N_t', 's_t'] as const) if (!(p[k] > 0)) return { warnings, errors: [{ code: 'range', keys: [k] }] }
+        const t_phi = ((1 - p.f_t) * Pw * p.a * (2 * R_c - p.a)) / (2 * (R_c - p.a)) / sa
+        const X = Math.max((Pw * p.a) / 2 + ((1 - fs) * w2 * sumMR) / (4 * Math.PI ** 2 * p.a), p.f_t > 0 ? (p.f_t * Pw * p.s_t) / Math.SQRT2 : 0)
+        t_hull = Math.max(t_phi, X / den)
+        const M_wall = p.rho * t_hull * A_hull
+        push('管の壁', M_wall, true)
+        inertia.push({ z: M_wall * (R_c ** 2 + 1.5 * p.a ** 2), x: 0 })
+      }
       m_hull = p.rho * t_hull
-      const M_wall = m_hull * A_hull
-      push('管の壁', M_wall, true)
-      inertia.push({ z: M_wall * (R_c ** 2 + 1.5 * p.a ** 2), x: 0 })
       inertia.push({ z: M_air * (R_c ** 2 + 0.75 * a_i ** 2), x: 0 })
       if (p.shield_rot) {
         A_shield = 4 * Math.PI ** 2 * R_c * r_m
@@ -991,6 +1118,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
       const R_air = R_s + lift
       const R_h = R_air + tsr
       const r_sh = R_h - tsr / 2
+      const R_b = dbl ? R_h + p.h_gap : R_h
       vHull = omega * R_h
       const den = sa - (1 - fs) * p.rho * vHull ** 2
       if (den <= 0) {
@@ -1000,28 +1128,44 @@ function computeAll(p: ColonyInputs): ColonyResult {
       // §4.10 床の遠心力を、床のある範囲の殻が受ける等価な圧力。スポークはこの分の f_s を受ける（気圧の分は殻が受ける）
       const A_band = 4 * Math.PI * R_h * zMax
       const q_eq = (w2 * floors.reduce((s, f) => s + f.m * f.area * f.r, 0)) / A_band + (p.shield_rot ? sigma_sh * w2 * r_sh * (r_sh / R_h) : 0)
-      const Ps = P(R_h)
-      const T_mer = (Ps * R_h) / 2
+      const Ps = P(R_b)
+      // 回る殻の気圧の張力（2重床の床構造にはない）
+      const T_mer = dbl ? 0 : (Ps * R_h) / 2
       const cs = fs > 0 ? circular(fs * q_eq * s_zr, fs * q_eq, R_h, s_zr, n_r, (T_mer + (1 - fs) * q_eq * R_h) * s_zr, T_mer, R_h) : undefined
       if (fs > 0 && !cs) return { warnings, errors }
       const N_ax = axM === 'membrane' ? T_mer + (fs * q_eq * s_zr) / Math.SQRT2 : Math.max(T_mer, (cs?.C_z ?? 0) - T_mer)
-      t_hull = Math.max((T_mer + (1 - fs) * q_eq * R_h) / den, N_ax / sa)
-      R_hull = R_h
-      A_hull = 4 * Math.PI * R_h ** 2
+      const t_rot = Math.max((T_mer + (1 - fs) * q_eq * R_h) / den, N_ax / sa)
+      if (dbl) {
+        // 与圧隔壁（止まっている球）、床構造（床のある帯）、防風壁（球の残り）
+        t_hull = (Ps * R_b) / 2 / sa
+        push('与圧隔壁（球）', p.rho * t_hull * 4 * Math.PI * R_b ** 2, false)
+        const M_fl = p.rho * t_rot * A_band
+        const M_wind = p.m_enc * (4 * Math.PI * R_h ** 2 - A_band)
+        push('床構造（床のある帯）', M_fl, true)
+        push('防風壁', M_wind, true)
+        inertia.push({ z: M_fl * R_h ** 2, x: 0 }, { z: (2 / 3) * M_wind * R_h ** 2, x: 0 })
+        out.t_fl = t_rot
+        out.R_b = R_b
+        rFl = R_h
+      } else {
+        t_hull = t_rot
+        const M_wall = p.rho * t_hull * 4 * Math.PI * R_h ** 2
+        push('外壁（球の殻）', M_wall, true)
+        inertia.push({ z: (2 / 3) * M_wall * R_h ** 2, x: 0 })
+      }
+      R_hull = R_b
+      A_hull = 4 * Math.PI * R_b ** 2
       m_hull = p.rho * t_hull
-      const M_wall = m_hull * A_hull
-      push('外壁（球の殻）', M_wall, true)
-      inertia.push({ z: (2 / 3) * M_wall * R_h ** 2, x: 0 })
-      V_air = (4 / 3) * Math.PI * R_air ** 3
+      V_air = (4 / 3) * Math.PI * R_air ** 3 + (dbl ? A_hull * p.h_gap : 0)
       const M_air = rho_air * V_air
       inertia.push({ z: 0.4 * M_air * R_air ** 2, x: 0 })
       if (p.shield_rot) {
         A_shield = 4 * Math.PI * r_sh ** 2
         push('遮蔽（自転させる）', sigma_sh * A_shield, true)
         inertia.push({ z: (2 / 3) * sigma_sh * A_shield * r_sh ** 2, x: 0 })
-        rOuter = R_h + t_hull
+        rOuter = R_b + t_hull
       } else {
-        const r_mid = R_h + t_hull + p.g_sh + t_sh / 2
+        const r_mid = R_b + t_hull + p.g_sh + t_sh / 2
         nonRotShield(r_mid, 4 * Math.PI * r_mid ** 2)
       }
       // スポークとリング：床のある範囲（軸方向に ±zMax）に列を並べる。長さは保守的に殻の半径（円形を保つ構造では節点）まで
@@ -1031,7 +1175,7 @@ function computeAll(p: ColonyInputs): ColonyResult {
         const m = spoke(F, p.r_hub, cs.r_node)
         if (!m) return { warnings, errors }
         addMember('スポーク', Math.round(p.N_th) * n_r, m, cs.r_node - p.r_hub)
-        const sigma_theta = ((Ps * R_h) / 2 + (1 - fs) * (q_eq * R_h + p.rho * t_hull * vHull ** 2)) / t_hull
+        const sigma_theta = (T_mer + (1 - fs) * (q_eq * R_h + p.rho * t_rot * vHull ** 2)) / t_rot
         out.dl_spoke = (R_h * sigma_theta) / p.E_h - m.delta
         out.F_spoke = F
         out.n_rows = n_r
@@ -1041,7 +1185,8 @@ function computeAll(p: ColonyInputs): ColonyResult {
       out.R_s = R_s
       if (lift > 0) out.lift = lift
       airHi = R_air
-      pHi = R_h
+      pHi = R_b
+      if (dbl) setDrag(2 * integrate((ph) => dragAt(R_h * Math.cos(ph), 2 * Math.PI * R_h * Math.cos(ph) * R_h), Math.PI / 2))
       selfMax = fs < 1 ? sa / p.rho / (1 - fs) : Infinity
       break
     }
@@ -1144,7 +1289,10 @@ function computeAll(p: ColonyInputs): ColonyResult {
   if (p.h_bld > 0 && p.R_f - p.h_bld > airLo) rowsAt.push({ label: '建物の上', r: p.R_f - p.h_bld })
   for (const f of floors.slice(1)) rowsAt.push({ label: f.label, r: f.r })
   rowsAt.push({ label: floors[0].label, r: p.R_f })
-  if (axisInside) rowsAt.push({ label: '外壁', r: R_hull! })
+  if (axisInside) {
+    if (rFl !== undefined) rowsAt.push({ label: '床構造', r: rFl }, { label: '与圧隔壁', r: R_hull! })
+    else rowsAt.push({ label: '外壁', r: R_hull! })
+  }
   rowsAt.push(...extraRows)
   rowsAt.sort((x, y) => x.r - y.r)
   const heights: HeightRow[] = rowsAt.map(({ label, r }) => ({

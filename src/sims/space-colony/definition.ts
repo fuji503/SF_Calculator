@@ -16,9 +16,13 @@ const hasDecks = shapeIs('torus', 'dumbbell')
 const sphereLevels = (i: Inputs) => isSphere(i) && i.sphere_floor !== 'band'
 const byTarget = (i: Inputs) => !i.shield_by
 const nonRot = (i: Inputs) => !i.shield_rot && !isDumbbell(i)
-const spokeShare = (i: Inputs) => !isDumbbell(i) && Number(i.f_s) > 0
+/** 2重床（ダンベルでは使わない） */
+const dbl = (i: Inputs) => Boolean(i.double_floor) && !isDumbbell(i)
+/** トーラスの2重床では、スポークと管の中の引っ張り材は止まっている管を横切るので使えない */
+const torusDbl = (i: Inputs) => isTorus(i) && dbl(i)
+const spokeShare = (i: Inputs) => !isDumbbell(i) && !torusDbl(i) && Number(i.f_s) > 0
 const rowSpokes = (i: Inputs) => shapeIs('cylinder', 'sphere')(i) && spokeShare(i)
-const tubeTies = (i: Inputs) => hasDecks(i) && Number(i.f_t) > 0
+const tubeTies = (i: Inputs) => hasDecks(i) && !torusDbl(i) && Number(i.f_t) > 0
 const capSupported = (i: Inputs) => isCyl(i) && i.cap !== 'hemi'
 /** スポーク・テザー（放射状の部材）があるか */
 const radial = (i: Inputs) => spokeShare(i) || isDumbbell(i)
@@ -49,6 +53,8 @@ const pressure: UnitDef = { options: [U.Pa, U.kPa, { id: 'atm', label: 'atm', fa
 const strength: UnitDef = { options: [U.Pa, U.MPa, U.GPa], defaultId: 'MPa' }
 const massT: UnitDef = { ...unitDefs.mass, defaultId: 't' }
 const fraction = unitDefs.fraction
+const power: UnitDef = { options: [{ id: 'W', label: 'W', factor: 1 }, { id: 'kW', label: 'kW', factor: 1e3 }, { id: 'MW', label: 'MW', factor: 1e6 }], defaultId: 'MW' }
+const pressure0: UnitDef = { options: [U.Pa, U.kPa], defaultId: 'Pa' }
 
 const kal = COLONY_PRESETS.kalpana.values
 const al = MATERIALS.al7075
@@ -411,6 +417,55 @@ const inputs: ParamDef[] = [
     min: 0,
     visibleWhen: (i) => (hasDecks(i) && Number(i.n_deck) > 0) || sphereLevels(i),
   },
+  {
+    kind: 'boolean',
+    key: 'double_floor',
+    group: 'struct',
+    label: '2重床',
+    description:
+      'はい：気圧を受ける与圧隔壁は止めておき、その内側で床構造と防風壁（トーラスは防風屋根）だけを回す。与圧隔壁は自分の重さの遠心力を受けないので、速いコロニーほど壁が大きく薄くなる（床構造が回るので、作れる速さの上限は変わらない）。代わりに、隙間の空気の摩擦に負けないよう、モーターで回し続ける電力が要る。トーラスでは、スポークと管の中の引っ張り材は止まっている管を横切るので使えない',
+    default: false,
+    visibleWhen: (i) => !isDumbbell(i),
+  },
+  {
+    kind: 'number',
+    key: 'h_gap',
+    group: 'struct',
+    label: '床構造と与圧隔壁の隙間',
+    symbol: 'h_{gap}',
+    description: '回る面と止まっている面の間の空気の層。狭くしても空気の摩擦はほとんど変わらない（乱流のため、わずかに増える）。広いほど与圧隔壁が大きくなる',
+    unit: length,
+    default: 1,
+    min: 0,
+    minExclusive: true,
+    visibleWhen: dbl,
+  },
+  {
+    kind: 'number',
+    key: 'm_enc',
+    group: 'struct',
+    label: '防風壁・防風屋根の面密度',
+    symbol: 'm_{enc}',
+    description: '床構造と一緒に回り、住む空間を囲む軽い壁。通気口で内外の気圧をそろえるので気圧はかからない。中の空気を床と一緒に回し、止まっている与圧隔壁との摩擦を隙間の空気だけにする',
+    unit: { ...areal, defaultId: U.kgm2.id },
+    default: 10,
+    min: 0,
+    visibleWhen: dbl,
+  },
+  {
+    kind: 'number',
+    key: 'eta_m',
+    group: 'struct',
+    label: '回転を保つモーターの効率',
+    symbol: '\\eta_m',
+    description: '空気の摩擦に負けないよう回し続けるモーターの、電力に対する仕事の割合（参考値）。低いほど電力が増え、損失の分も中で熱になる。モーターの場所（中心の軸の近く、与圧隔壁と床構造の間のリニアモーターなど）で要る仕事は変わらない',
+    unit: fraction,
+    default: 0.9,
+    min: 0,
+    max: 1,
+    minExclusive: true,
+    visibleWhen: dbl,
+  },
 
   // §3.5 スポークと引っ張り材、§3.6 端のふた
   {
@@ -425,7 +480,7 @@ const inputs: ParamDef[] = [
     default: 0,
     min: 0,
     max: 1,
-    visibleWhen: (i) => !isDumbbell(i),
+    visibleWhen: (i) => !isDumbbell(i) && !torusDbl(i),
   },
   {
     kind: 'number',
@@ -635,7 +690,7 @@ const inputs: ParamDef[] = [
     default: 0,
     min: 0,
     max: 1,
-    visibleWhen: hasDecks,
+    visibleWhen: (i) => hasDecks(i) && !torusDbl(i),
   },
   {
     kind: 'number',
@@ -668,11 +723,11 @@ const inputs: ParamDef[] = [
     group: 'spoke',
     label: '端のふたの支え方',
     description:
-      '半球の殻：支えを使わず、殻だけで気圧を受ける（構造が簡単）。中心の軸：ふたを平らに近い形にして、軸と外周の間でふくらませ、内側の気圧を軸が受ける（端の空間が増える）。中心の軸と同心の引っ張り材：ふたを同心の輪で区切り、各輪の気圧を軸方向の引っ張り材が受ける（ふたが薄くなる）',
+      '半球の殻：支えを使わず、殻だけで気圧を受ける（構造が簡単）。中心の軸：ふたを平らに近い形にして、軸と外周の間でふくらませ、内側の気圧を軸が受ける（端の空間が増える）。中心の軸と同心の引っ張り材：ふたを同心の輪で区切り、各輪の気圧を軸方向の引っ張り材が受ける（ふたが薄くなる）。2重床では、ふたと中心の軸は止まっている与圧隔壁の一部で、スポークのハブは軸受けで軸の周りを回る。同心の引っ張り材は回る床構造の中を横切るので選べない',
     options: [
       { value: 'hemi', label: '半球の殻（支えなし）' },
       { value: 'spine', label: '中心の軸で支える' },
-      { value: 'ties', label: '中心の軸と同心の引っ張り材で支える' },
+      { value: 'ties', label: '中心の軸と同心の引っ張り材で支える（2重床では選べない）', disabledWhen: dbl },
     ],
     default: 'hemi',
     visibleWhen: isCyl,
@@ -920,6 +975,25 @@ const outputs: OutputDef[] = [
   { key: 'comfort_table', kind: 'table', group: 'spin', label: '快適さの判定' },
   { key: 'R_min_rpm', kind: 'number', group: 'spin', label: '回転数の上限で決まる最小の半径', unit: length, description: 'この重力を回転数の上限以下で作るのに要る半径' },
   { key: 'v_min_cor', kind: 'number', group: 'spin', label: 'コリオリの上限で決まる最小の接線速度', unit: unitDefs.velocity },
+  {
+    key: 'P_mot',
+    kind: 'number',
+    group: 'spin',
+    label: '回転を保つモーターの電力（2重床）',
+    unit: power,
+    visibleWhen: dbl,
+    description: '空気の摩擦の電力 ÷ モーターの効率。毎日ずっと要り、空気の摩擦もモーターの損失も、すべて中で熱になる。回し始めるエネルギー（質量と回転のエネルギー）とは別',
+  },
+  {
+    key: 'P_drag',
+    kind: 'number',
+    group: 'spin',
+    label: '空気の摩擦の電力（2重床）',
+    unit: power,
+    visibleWhen: dbl,
+    description: '回る床構造・防風壁・防風屋根と、止まっている与圧隔壁の間の隙間の空気が、回転から奪う仕事。速いほど、空気が濃いほど大きい（参考値。実際の流れでは2倍程度の幅がある）',
+  },
+  { key: 'tau_gap', kind: 'number', group: 'spin', label: '隙間の摩擦応力（基準の床の速さ）', unit: pressure0, visibleWhen: dbl },
 
   // 形と大きさ
   { key: 'L', kind: 'number', group: 'geom', label: '長さ（円筒の部分）', symbol: 'L', unit: length, visibleWhen: isCyl },
@@ -968,7 +1042,17 @@ const outputs: OutputDef[] = [
     label: '外壁の厚さ',
     symbol: 't',
     unit: thin,
-    description: '気圧、床に載るものと遮蔽（自転させるとき）の遠心力、壁自身の遠心力のうち、スポーク・引っ張り材が受ける分を除いた荷重を受ける薄い殻の厚さ。トーラスは管の壁、ダンベルはモジュールの壁',
+    description:
+      '気圧、床に載るものと遮蔽（自転させるとき）の遠心力、壁自身の遠心力のうち、スポーク・引っ張り材が受ける分を除いた荷重を受ける薄い殻の厚さ。トーラスは管の壁、ダンベルはモジュールの壁。2重床では、止まっていて気圧だけを受ける与圧隔壁の厚さ',
+  },
+  {
+    key: 't_fl',
+    kind: 'number',
+    group: 'struct',
+    label: '床構造の厚さ（2重床）',
+    unit: thin,
+    visibleWhen: dbl,
+    description: '回る床構造が、床に載るものと遮蔽（自転させるとき）と自分の重さの遠心力のうち、スポークが受ける分を除いた荷重を受ける厚さ（気圧は受けない）。トーラスは床の幅にならした厚さ',
   },
   { key: 'm_hull', kind: 'number', group: 'struct', label: '外壁の面密度', unit: areal },
   { key: 't_cap', kind: 'number', group: 'struct', label: '端のふたの厚さ', unit: thin, visibleWhen: isCyl },
@@ -1028,7 +1112,7 @@ const outputs: OutputDef[] = [
   { key: 'M_rot', kind: 'number', group: 'mass', label: '回るものの質量', unit: massT },
   { key: 'M_hull', kind: 'number', group: 'mass', label: '外壁の質量', unit: massT, graphOnly: true },
   { key: 'I', kind: 'number', group: 'mass', label: '回転の慣性モーメント', symbol: 'I', unit: fixedUnit('kg·m²') },
-  { key: 'E_rot', kind: 'number', group: 'mass', label: '回転のエネルギー', unit: unitDefs.energy, description: '回し始めるのに要るエネルギー（最低限）' },
+  { key: 'E_rot', kind: 'number', group: 'mass', label: '回転のエネルギー', unit: unitDefs.energy, description: '回し始めるのに要るエネルギー（最低限）。一度だけ要る。2重床で回転を保つ電力とは別' },
   { key: 'L_ang', kind: 'number', group: 'mass', label: '角運動量', unit: fixedUnit('kg·m²/s'), description: '大きいほど、コロニーの向きを変えにくい（ジャイロ効果）' },
 ]
 
@@ -1092,6 +1176,8 @@ export const spaceColony: SimDefinition = {
     'hub-out': 'ハブの半径が、スポーク・軸を付ける面（外壁、管の内側の壁、モジュールの上の壁）以上です。ハブを小さくしてください',
     'tie-sag': '同心の引っ張り材が、自分の遠心力で支点の間隔の {k}% たるみます。スポークの列を増やす（支点を増やす）か、輪の数を減らすか、強さ ÷ 密度の大きい材料にしてください',
     'torus-bending': 'ハブのスポークの間で、管は曲げを受けます（この計算では評価しません）',
+    'double-ties': '2重床では、端のふたを「中心の軸と同心の引っ張り材」で支えられません（引っ張り材が回る床構造の中を横切るため）。半球の殻か、中心の軸で支えるにしてください',
+    'torus-double': 'トーラスの2重床では、スポークと管の中の引っ張り材は止まっている外側の管を横切るので使えません。0% として計算しました（床構造の輪だけで遠心力を受けます）',
     leo500: '赤道上の低軌道 500 km では、遮蔽がなくても 20 mSv/年 を満たします（Globus & Strout）',
     'beam-limit': '外壁の速さ {v} m/s では、外壁の材料の梁は自分の遠心力に耐えられません。梁以外の受け方にするか、半径を小さくするか、強さ ÷ 密度の大きい材料にしてください',
     'stay-shallow':
@@ -1112,7 +1198,7 @@ export const spaceColony: SimDefinition = {
     // エラーのときも、回転と材料の上限は出す
     if (r.spin) for (const k of ['n_rpm', 'omega', 'v', 'period', 'v_max', 'R_max'] as const) num(k, r.spin[k])
     if (o) {
-      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'F_spoke', 'n_rows', 's_zr', 'bulge_th', 'bulge_z', 'd_th', 'd_z', 'lift', 't_zbeam', 'C_th', 'T_th', 'C_z', 'T_z', 'dl_spoke', 'tie_sag', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
+      for (const k of ['n_rpm', 'omega', 'v', 'M_total', 'period', 'dg_dr', 'R_min_rpm', 'v_min_cor', 'L', 'R_c', 'w', 'R_s', 'g_edge', 'L_m', 'g_end', 'tilt', 'A_total', 'V_air', 'M_air', 'P_axis', 't_hull', 'm_hull', 't_cap', 'v_max', 'R_max', 'F_tether', 't_sh', 'M_rot', 'I', 'E_rot', 'L_ang', 'dose', 'F_spoke', 'n_rows', 's_zr', 'bulge_th', 'bulge_z', 'd_th', 'd_z', 'lift', 't_zbeam', 'C_th', 'T_th', 'C_z', 'T_z', 'dl_spoke', 'tie_sag', 't_fl', 'P_drag', 'P_mot', 'tau_gap', 'p_O2', 'f_O2', 'x_O2', 'p_N2', 'p_H2O', 'T_dew', 'M_mol', 'rho_air'] as const) {
         num(k, o[k])
       }
       num('sigma_sh', o.sigma_sh)
@@ -1129,7 +1215,8 @@ export const spaceColony: SimDefinition = {
         num('D_mod', 2 * o.R_hull)
         num('D_rot', 2 * o.R_cm)
       }
-      num('M_hull', o.masses.filter((m) => m.label.includes('壁')).reduce((s, m) => s + m.mass, 0))
+      // 外壁・管の壁・モジュールの壁・与圧隔壁（ふたと防風壁は除く）
+      num('M_hull', o.masses.filter((m) => m.label.includes('壁') && !m.label.includes('ふた') && !m.label.includes('防風')).reduce((s, m) => s + m.mass, 0))
       const kPa = (P: number | undefined) => (P === undefined ? '—' : P / 1000)
       outputs.height_table = {
         kind: 'table',
@@ -1196,6 +1283,10 @@ function toColonyInputs(i: Inputs): ColonyInputs {
     SF: num('SF'),
     m_f: num('m_f'),
     m_deck: num('m_deck'),
+    double_floor: Boolean(i.double_floor),
+    h_gap: num('h_gap'),
+    m_enc: num('m_enc'),
+    eta_m: num('eta_m'),
     E_h: num('E_h'),
     sigma_us: num('sigma_us'),
     rho_s: num('rho_s'),
